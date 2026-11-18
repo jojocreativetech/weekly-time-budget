@@ -1883,25 +1883,25 @@ function App() {
             }, day);
           })
         })
-      }), tierActive !== "off" ? /*#__PURE__*/_jsxs("div", {
+      }), /*#__PURE__*/_jsxs("div", {
         className: "rounded-2xl border p-5 shadow-sm " + T.card,
         children: [/*#__PURE__*/_jsxs("button", {
           onClick: () => setRhythmOpen(!rhythmOpen),
           className: "flex w-full flex-wrap items-center justify-between gap-2",
           children: [/*#__PURE__*/_jsxs("div", {
             className: "text-left",
-            children: [/*#__PURE__*/_jsxs("div", {
+            children: [/*#__PURE__*/_jsx("div", {
               className: "text-sm font-semibold",
-              children: [TIERS[tierActive].short, " Monthly Posting Rhythm"]
+              children: tierActive !== "off" ? TIERS[tierActive].short + " Monthly Posting Rhythm" : "Monthly Posting Rhythm"
             }), /*#__PURE__*/_jsx("div", {
               className: "text-xs " + T.sub,
-              children: "Grey dot = a post to make that day · green = checked off."
+              children: tierActive !== "off" ? "Grey dot = a post to make that day · green = checked off." : "Pick a Posting Tier above and the month fills itself in."
             })]
           }), /*#__PURE__*/_jsx("span", {
             className: "text-xs " + T.sub,
             children: rhythmOpen ? "Hide ▲" : "Show ▼"
           })]
-        }), rhythmOpen ? /*#__PURE__*/_jsxs("div", {
+        }), rhythmOpen && tierActive !== "off" ? /*#__PURE__*/_jsxs("div", {
           className: "mt-3 rounded-xl border p-3 " + T.card,
           children: [/*#__PURE__*/_jsx("div", {
             className: "grid grid-cols-7 gap-1 text-center text-[10px] font-medium " + T.sub,
@@ -1936,7 +1936,7 @@ function App() {
             })]
           })]
         }) : null]
-      }) : null, /*#__PURE__*/_jsxs("div", {
+      }), /*#__PURE__*/_jsxs("div", {
         ref: trayRef,
         className: "rounded-2xl border p-4 shadow-sm transition-colors " + T.card + " " + (dragging && drag?.hover === "tray" ? "border-[#7CA621] bg-[#7CA621]/5" : ""),
         children: [/*#__PURE__*/_jsx("h2", {
