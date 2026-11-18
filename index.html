@@ -1,10 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Jojo's Weekly Time Budget</title>
 <meta name="description" content="Free weekly time budget: drag your week together block by block. Hour-based progress where sleep counts. From Jojo Creative Tech." />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%237CA621'/%3E%3Ctext x='32' y='44' font-family='Georgia, serif' font-weight='700' font-size='34' text-anchor='middle' fill='%23FFFDF8'%3EJj%3C/text%3E%3C/svg%3E" />
 <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.tailwindcss.com"></script>
@@ -320,6 +321,15 @@ function tierWeekPosts(tier, monday, weekDates) {
   });
   return out;
 }
+// Compact labels for the monthly posting-rhythm grid.
+function shortPost(l) {
+  if (l.startsWith("Magic Month")) return "MM · Day " + (l.match(/Day (\d+)/)?.[1] ?? "?");
+  if (l === "Progress Check-in") return "Check-in";
+  if (l === "Quote/Stat Card") return "Quote card";
+  if (l === "Motivational Post") return "Motiv.";
+  if (l === "Reel / Story") return "Reel";
+  return l;
+}
 const SHARE_TOGGLES = [{
   k: "stats",
   label: "Hours + blocks"
@@ -454,11 +464,36 @@ function App() {
   const monthKey = anchor.getFullYear() + "-" + String(anchor.getMonth() + 1).padStart(2, "0");
   // The posting plan remembers the tier for the whole month; a new month starts back at Off.
   const tierActive = cfg.tier && cfg.tier !== "off" && cfg.tierMonth === monthKey ? cfg.tier : "off";
-  const setTier = v => setCfg(c => ({
-    ...c,
-    tier: v,
-    tierMonth: v === "off" ? c.tierMonth ?? "" : monthKey
-  }));
+  const setTier = v => {
+    if (v === tierActive) return;
+    setCfg(c => ({
+      ...c,
+      tier: v,
+      tierMonth: v === "off" ? c.tierMonth ?? "" : monthKey
+    }));
+    // Switching tiers or turning it off clears this month's posting-tier blocks so the new plan starts clean.
+    setWeeks(s => {
+      let changed = false;
+      const out = {
+        ...s
+      };
+      for (const k of Object.keys(out)) {
+        const d = new Date(k + "T12:00:00");
+        if (isNaN(d.getTime()) || d.getFullYear() !== anchor.getFullYear() || d.getMonth() !== anchor.getMonth()) continue;
+        const wk = normWeek(out[k]);
+        const kept = wk.placed.filter(p => !p.blockId.startsWith("tp-"));
+        if (kept.length !== wk.placed.length) {
+          changed = true;
+          out[k] = {
+            ...wk,
+            placed: kept,
+            tSkip: []
+          };
+        }
+      }
+      return changed ? out : s;
+    });
+  };
   useEffect(() => {
     if (!loaded || tierActive === "off") return;
     const wants = tierWeekPosts(tierActive, anchor, dates);
@@ -549,6 +584,8 @@ function App() {
   const monthAvg = monthLogged.length > 0 ? Math.round(monthLogged.reduce((a, r) => a + r.pct, 0) / monthLogged.length) : 0;
   const monthPosts = monthRows.flatMap(r => r.posts);
   const monthPostsDone = monthPosts.filter(p => p.done).length;
+  // Every block id placed anywhere this month, so monthly suggestions can skip items already placed.
+  const monthBlockIds = new Set(monthRows.flatMap(r => weeks[r.mkey] ? normWeek(weeks[r.mkey]).placed.map(p => p.blockId) : []));
   const defOf = blockId => cfg.palette.find(b => b.id === blockId) ?? SUGGEST_DEFS[blockId] ?? {
     id: blockId,
     label: "Block",
@@ -557,7 +594,7 @@ function App() {
   };
   // A placed block can carry its own name: tier posts and per-block edits use it.
   const placedLabel = p => p.label && p.label.trim() ? p.label : defOf(p.blockId).label;
-  const suggestions = [...SUGGEST_WEEKLY, ...(videoWeek ? [EXTRA_BY.video] : []), ...(batchWeek ? [EXTRA_BY.batch] : []), ...(firstWeek ? [EXTRA_BY.accounting, EXTRA_BY.newsletter] : [])].filter(s => !placed.some(p => p.blockId === s.id));
+  const suggestions = [...SUGGEST_WEEKLY, ...(videoWeek ? [EXTRA_BY.video] : []), ...(batchWeek ? [EXTRA_BY.batch] : []), ...(firstWeek ? [EXTRA_BY.accounting] : []), ...(firstWeek || !monthBlockIds.has(EXTRA_BY.newsletter.id) ? [EXTRA_BY.newsletter] : [])].filter(s => !placed.some(p => p.blockId === s.id));
   const addPlaced = (blockId, day, mins) => upd(w => ({
     ...w,
     placed: [...w.placed, {
@@ -1402,6 +1439,46 @@ function App() {
           }), /*#__PURE__*/_jsx("div", {
             className: "mt-1.5 text-[11px] " + T.sub,
             children: "Average of each logged week, same math as the weekly bar: checked-off hours plus sleep at your average."
+          }), /*#__PURE__*/_jsxs("div", {
+            className: "mt-4",
+            children: [/*#__PURE__*/_jsx("div", {
+              className: "text-sm font-semibold",
+              children: "Posting rhythm"
+            }), /*#__PURE__*/_jsx("div", {
+              className: "mt-1 text-[11px] " + T.sub,
+              children: "A birds-eye view of the month: pale chips are planned posts, solid chips are checked off."
+            }), /*#__PURE__*/_jsx("div", {
+              className: "mt-2 overflow-x-auto rounded-xl border p-2 " + T.card,
+              children: /*#__PURE__*/_jsxs("div", {
+                className: "min-w-[430px]",
+                children: [/*#__PURE__*/_jsxs("div", {
+                  className: "grid grid-cols-[5.5rem_repeat(7,minmax(0,1fr))] gap-1 text-[10px] font-medium " + T.sub,
+                  children: [/*#__PURE__*/_jsx("span", {}), ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(d => /*#__PURE__*/_jsx("span", {
+                    className: "text-center",
+                    children: d
+                  }, d))]
+                }), monthRows.map((r, ri) => /*#__PURE__*/_jsxs("div", {
+                  className: "mt-1 grid grid-cols-[5.5rem_repeat(7,minmax(0,1fr))] gap-1",
+                  children: [/*#__PURE__*/_jsx("span", {
+                    className: "flex items-center text-[10px] " + T.sub,
+                    children: "W" + (ri + 1) + " · " + new Date(r.mkey + "T12:00:00").toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric"
+                    })
+                  }), [0, 1, 2, 3, 4, 5, 6].map(d => {
+                    const ps = r.posts.filter(p => p.day === d);
+                    return /*#__PURE__*/_jsx("span", {
+                      className: "flex min-h-[1.5rem] flex-col justify-center gap-0.5",
+                      children: ps.map(p => /*#__PURE__*/_jsx("span", {
+                        title: p.label,
+                        className: "truncate rounded-full px-1 py-0.5 text-center text-[10px] font-medium " + (p.done ? theme === "light" ? "bg-[#7CA621] text-white" : "bg-[#9CC45E] text-[#141312]" : theme === "light" ? "bg-[#7CA621]/15 text-[#5C7D18]" : "bg-[#7CA621]/20 text-[#9CC45E]"),
+                        children: shortPost(p.label ?? "")
+                      }, p.uid))
+                    }, d);
+                  })]
+                }, r.mkey))]
+              })
+            })]
           }), /*#__PURE__*/_jsx("div", {
             className: "mt-3 space-y-1",
             children: monthRows.map(r => /*#__PURE__*/_jsxs("div", {
@@ -1471,10 +1548,10 @@ function App() {
               })]
             }), /*#__PURE__*/_jsxs("div", {
               className: "flex items-center gap-2",
-              title: "Optional: pre-fill this month's posting days from the Tiers plan. The added blocks are ordinary blocks: drag, resize, edit, or remove them freely. Remembered for the whole month.",
+              title: "Optional: pick your Posting Tier and this month's posting days pre-fill as ordinary blocks. Drag, resize, edit, or remove them freely. Switching tiers or turning off clears the old plan.",
               children: [/*#__PURE__*/_jsx("span", {
                 className: "text-xs font-medium " + T.sub,
-                children: "Posting plan?"
+                children: "Posting Tier?"
               }), /*#__PURE__*/_jsx(Seg, {
                 options: [{
                   v: "off",
@@ -1571,6 +1648,33 @@ function App() {
                   if (!(r && e.currentTarget.contains(r))) setEditChip(null);
                 },
                 children: [/*#__PURE__*/_jsx("input", {
+                  type: "color",
+                  defaultValue: b.color ?? zoneColor(b.zone),
+                  onChange: e => setCfg(c => ({
+                    ...c,
+                    palette: c.palette.map(x => x.id === b.id ? {
+                      ...x,
+                      color: e.target.value
+                    } : x)
+                  })),
+                  title: "Block color (custom overrides the " + ZONE_NAME[b.zone].toLowerCase() + " zone color)",
+                  className: "h-6 w-8 cursor-pointer rounded-full border p-0.5 " + (theme === "light" ? "border-stone-300 bg-stone-50" : "border-[#3A3733] bg-[#141312]")
+                }), b.color ? /*#__PURE__*/_jsx("button", {
+                  onClick: () => setCfg(c => ({
+                    ...c,
+                    palette: c.palette.map(x => {
+                      if (x.id !== b.id) return x;
+                      const nx = {
+                        ...x
+                      };
+                      delete nx.color;
+                      return nx;
+                    })
+                  })),
+                  className: "rounded-full px-1.5 py-0.5 text-[10px] " + T.sub + " hover:text-[#D85F4F]",
+                  title: "Back to the zone color",
+                  children: "↺"
+                }) : null, /*#__PURE__*/_jsx("input", {
                   autoFocus: true,
                   defaultValue: b.label,
                   onBlur: e => {
@@ -1603,34 +1707,7 @@ function App() {
                     if (e.key === "Enter") e.target.blur();
                   },
                   className: "w-16 rounded-full border px-2.5 py-1 text-xs " + T.input
-                }), /*#__PURE__*/_jsx("input", {
-                  type: "color",
-                  defaultValue: b.color ?? zoneColor(b.zone),
-                  onChange: e => setCfg(c => ({
-                    ...c,
-                    palette: c.palette.map(x => x.id === b.id ? {
-                      ...x,
-                      color: e.target.value
-                    } : x)
-                  })),
-                  title: "Block color (custom overrides the " + ZONE_NAME[b.zone].toLowerCase() + " zone color)",
-                  className: "h-6 w-8 cursor-pointer rounded-full border p-0.5 " + (theme === "light" ? "border-stone-300 bg-stone-50" : "border-[#3A3733] bg-[#141312]")
-                }), b.color ? /*#__PURE__*/_jsx("button", {
-                  onClick: () => setCfg(c => ({
-                    ...c,
-                    palette: c.palette.map(x => {
-                      if (x.id !== b.id) return x;
-                      const nx = {
-                        ...x
-                      };
-                      delete nx.color;
-                      return nx;
-                    })
-                  })),
-                  className: "rounded-full px-1.5 py-0.5 text-[10px] " + T.sub + " hover:text-[#D85F4F]",
-                  title: "Back to the zone color",
-                  children: "↺"
-                }) : null]
+                })]
               }) : /*#__PURE__*/_jsxs("button", {
                 onPointerDown: e => beginChipDrag(e, "palette", b.id, b.label, b.zone, b.mins),
                 onPointerMove: handleMove,
