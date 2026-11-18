@@ -3,17 +3,22 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Jojo's Weekly Time Budget · v1.5.2</title>
+<title>Jojo's Weekly Time Budget · v1.6</title>
 <meta name="description" content="Free weekly time budget: drag your week together block by block. Hour-based progress where sleep counts. From Jojo Creative Tech." />
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%237CA621'/%3E%3Ctext x='32' y='44' font-family='Georgia, serif' font-weight='700' font-size='34' text-anchor='middle' fill='%23FFFDF8'%3EJj%3C/text%3E%3C/svg%3E" />
-<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
-<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="vendor/styles.css" />
+<script src="vendor/react.production.min.js"></script>
+<script src="vendor/react-dom.production.min.js"></script>
 </head>
 <body>
 <div id="root"></div>
 <script>
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+function ownKeys(e, r) { var t = Object.keys(e); if (Object.getOwnPropertySymbols) { var o = Object.getOwnPropertySymbols(e); r && (o = o.filter(function (r) { return Object.getOwnPropertyDescriptor(e, r).enumerable; })), t.push.apply(t, o); } return t; }
+function _objectSpread(r) { for (var t = 1; t < arguments.length; t++) { var o = null != arguments[t] ? arguments[t] : {}; t % 2 ? ownKeys(Object(o), !0).forEach(function (t) { _defineProperty(r, t, o[t]); }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(r, Object.getOwnPropertyDescriptors(o)) : ownKeys(Object(o)).forEach(function (e) { Object.defineProperty(r, e, Object.getOwnPropertyDescriptor(o, e)); }); } return r; }
+function _defineProperty(r, t, o) { return (t = _toPropertyKey(t)) in r ? Object.defineProperty(r, t, { value: o, enumerable: !0, configurable: !0, writable: !0 }) : r[t] = o, r; }
+function _toPropertyKey(r) { var o = _toPrimitive(r, "string"); return "symbol" == typeof o ? o : o + ""; }
+function _toPrimitive(t, e) { if ("object" != typeof t || !t) return t; var r; if ("undefined" != typeof Symbol && void 0 !== (r = t[Symbol.toPrimitive])) { var i = r.call(t, e || "default"); if ("object" != typeof i) return i; throw new TypeError("@@toPrimitive must return a primitive value."); } return ("string" === e ? String : Number)(t); }
 const {
   useState,
   useEffect,
@@ -79,10 +84,11 @@ function normCalT(v) {
   return m[1].padStart(2, "0") + ":" + m[2];
 }
 function normPlaced(raw) {
+  var _p$uid, _p$blockId;
   const p = raw && typeof raw === "object" ? raw : {};
   const out = {
-    uid: String(p.uid ?? genId("p")),
-    blockId: String(p.blockId ?? ""),
+    uid: String((_p$uid = p.uid) !== null && _p$uid !== void 0 ? _p$uid : genId("p")),
+    blockId: String((_p$blockId = p.blockId) !== null && _p$blockId !== void 0 ? _p$blockId : ""),
     day: typeof p.day === "number" && p.day >= -1 && p.day <= 6 ? p.day : -1,
     mins: typeof p.mins === "number" && p.mins > 0 ? Math.min(720, p.mins) : 60,
     done: !!p.done
@@ -94,10 +100,13 @@ function normPlaced(raw) {
 }
 function normItems(raw) {
   if (Array.isArray(raw)) {
-    return raw.filter(t => t && typeof t === "object" && typeof t.text === "string" && t.text.trim()).map(t => ({
-      id: String(t.id ?? genId("n")),
-      text: t.text.trim()
-    }));
+    return raw.filter(t => t && typeof t === "object" && typeof t.text === "string" && t.text.trim()).map(t => {
+      var _t$id;
+      return {
+        id: String((_t$id = t.id) !== null && _t$id !== void 0 ? _t$id : genId("n")),
+        text: t.text.trim()
+      };
+    });
   }
   if (typeof raw === "string" && raw.trim()) {
     return raw.split("\n").map(l => l.trim()).filter(Boolean).map(l => ({
@@ -120,11 +129,12 @@ function normWeek(raw) {
 }
 function normPalette(arr) {
   return arr.map(b => {
+    var _o$id, _o$label;
     const o = b && typeof b === "object" ? b : {};
     const zoneRaw = typeof o.zone === "string" ? o.zone : "noon";
     const out = {
-      id: String(o.id ?? genId("b")),
-      label: String(o.label ?? "Block"),
+      id: String((_o$id = o.id) !== null && _o$id !== void 0 ? _o$id : genId("b")),
+      label: String((_o$label = o.label) !== null && _o$label !== void 0 ? _o$label : "Block"),
       zone: ZONE_ORDER.includes(zoneRaw) ? zoneRaw : "noon",
       mins: typeof o.mins === "number" && o.mins > 0 ? Math.min(720, o.mins) : 60
     };
@@ -351,6 +361,7 @@ for (const k of Object.keys(EXTRA_BY)) SUGGEST_DEFS[k] = {
   mins: EXTRA_BY[k].mins
 };
 function App() {
+  var _wd$video, _wd$batch, _wd$video2, _wd$batch2;
   const [theme, setTheme] = useState("light");
   const [anchor, setAnchor] = useState(() => mondayOf(new Date()));
   const [weeks, setWeeks] = useState({});
@@ -431,8 +442,7 @@ function App() {
   }, [theme, cfg, weeks, loaded]);
   const key = isoDate(anchor);
   const wd = weeks[key] ? normWeek(weeks[key]) : normWeek(undefined);
-  const upd = fn => setWeeks(s => ({
-    ...s,
+  const upd = fn => setWeeks(s => _objectSpread(_objectSpread({}, s), {}, {
     [key]: fn(normWeek(s[key]))
   }));
   const dates = Array.from({
@@ -447,10 +457,9 @@ function App() {
   const monthLast = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0);
   const batchAuto = isoDate(monthLast) >= isoDate(anchor) && isoDate(monthLast) <= isoDate(dates[6]);
   const firstWeek = anchor.getDate() <= 7;
-  const videoWeek = (wd.video ?? "auto") === "auto" ? videoAuto : wd.video === "video";
-  const batchWeek = (wd.batch ?? "auto") === "auto" ? batchAuto : wd.batch === "batch";
-  const setMode = (field, v) => upd(w => ({
-    ...w,
+  const videoWeek = ((_wd$video = wd.video) !== null && _wd$video !== void 0 ? _wd$video : "auto") === "auto" ? videoAuto : wd.video === "video";
+  const batchWeek = ((_wd$batch = wd.batch) !== null && _wd$batch !== void 0 ? _wd$batch : "auto") === "auto" ? batchAuto : wd.batch === "batch";
+  const setMode = (field, v) => upd(w => _objectSpread(_objectSpread({}, w), {}, {
     [field]: v
   }));
   const monthKey = anchor.getFullYear() + "-" + String(anchor.getMonth() + 1).padStart(2, "0");
@@ -458,17 +467,17 @@ function App() {
   const tierActive = cfg.tier && cfg.tier !== "off" && cfg.tierMonth === monthKey ? cfg.tier : "off";
   const setTier = v => {
     if (v === tierActive) return;
-    setCfg(c => ({
-      ...c,
-      tier: v,
-      tierMonth: v === "off" ? c.tierMonth ?? "" : monthKey
-    }));
+    setCfg(c => {
+      var _c$tierMonth;
+      return _objectSpread(_objectSpread({}, c), {}, {
+        tier: v,
+        tierMonth: v === "off" ? (_c$tierMonth = c.tierMonth) !== null && _c$tierMonth !== void 0 ? _c$tierMonth : "" : monthKey
+      });
+    });
     // Switching tiers or turning it off clears this month's posting-tier blocks so the new plan starts clean.
     setWeeks(s => {
       let changed = false;
-      const out = {
-        ...s
-      };
+      const out = _objectSpread({}, s);
       for (const k of Object.keys(out)) {
         const d = new Date(k + "T12:00:00");
         if (isNaN(d.getTime()) || d.getFullYear() !== anchor.getFullYear() || d.getMonth() !== anchor.getMonth()) continue;
@@ -476,11 +485,10 @@ function App() {
         const kept = wk.placed.filter(p => !p.blockId.startsWith("tp-"));
         if (kept.length !== wk.placed.length) {
           changed = true;
-          out[k] = {
-            ...wk,
+          out[k] = _objectSpread(_objectSpread({}, wk), {}, {
             placed: kept,
             tSkip: []
-          };
+          });
         }
       }
       return changed ? out : s;
@@ -491,8 +499,9 @@ function App() {
     const wants = tierWeekPosts(tierActive, anchor, dates);
     if (wants.length === 0) return;
     setWeeks(s => {
+      var _wk$tSkip;
       const wk = normWeek(s[key]);
-      const skip = wk.tSkip ?? [];
+      const skip = (_wk$tSkip = wk.tSkip) !== null && _wk$tSkip !== void 0 ? _wk$tSkip : [];
       const have = new Set(wk.placed.map(p => p.blockId));
       const add = wants.filter(x => !have.has(x.id) && !skip.includes(x.id));
       if (add.length === 0) return s;
@@ -504,13 +513,11 @@ function App() {
         done: false,
         label: x.label
       }))];
-      return {
-        ...s,
-        [key]: {
-          ...wk,
+      return _objectSpread(_objectSpread({}, s), {}, {
+        [key]: _objectSpread(_objectSpread({}, wk), {}, {
           placed
-        }
-      };
+        })
+      });
     });
   }, [loaded, key, tierActive]);
   // Selecting a tier opens the posting rhythm card so the plan is visible right away
@@ -589,18 +596,22 @@ function App() {
   // at the month edges work too.
   const planCache = {};
   const weekPlan = mondayIso => {
+    var _wk$tSkip2;
     if (planCache[mondayIso]) return planCache[mondayIso];
     const m = new Date(mondayIso + "T12:00:00");
     const stored = weeks[mondayIso];
     const wk = stored ? normWeek(stored) : null;
-    const seen = !!wk && (wk.placed.some(p => p.blockId.startsWith("tp-")) || (wk.tSkip ?? []).length > 0);
+    const seen = !!wk && (wk.placed.some(p => p.blockId.startsWith("tp-")) || ((_wk$tSkip2 = wk.tSkip) !== null && _wk$tSkip2 !== void 0 ? _wk$tSkip2 : []).length > 0);
     let cells;
     if (seen && wk) {
-      cells = wk.placed.filter(p => p.blockId.startsWith("tp-")).map(p => ({
-        day: p.day,
-        done: p.done,
-        label: p.label ?? ""
-      }));
+      cells = wk.placed.filter(p => p.blockId.startsWith("tp-")).map(p => {
+        var _p$label;
+        return {
+          day: p.day,
+          done: p.done,
+          label: (_p$label = p.label) !== null && _p$label !== void 0 ? _p$label : ""
+        };
+      });
     } else {
       const ds = Array.from({
         length: 7
@@ -618,17 +629,19 @@ function App() {
     planCache[mondayIso] = cells;
     return cells;
   };
-  const defOf = blockId => cfg.palette.find(b => b.id === blockId) ?? SUGGEST_DEFS[blockId] ?? {
-    id: blockId,
-    label: "Block",
-    zone: "noon",
-    mins: 60
+  const defOf = blockId => {
+    var _ref, _cfg$palette$find;
+    return (_ref = (_cfg$palette$find = cfg.palette.find(b => b.id === blockId)) !== null && _cfg$palette$find !== void 0 ? _cfg$palette$find : SUGGEST_DEFS[blockId]) !== null && _ref !== void 0 ? _ref : {
+      id: blockId,
+      label: "Block",
+      zone: "noon",
+      mins: 60
+    };
   };
   // A placed block can carry its own name: tier posts and per-block edits use it.
   const placedLabel = p => p.label && p.label.trim() ? p.label : defOf(p.blockId).label;
   const suggestions = [...SUGGEST_WEEKLY, ...(videoWeek ? [EXTRA_BY.video] : []), ...(batchWeek ? [EXTRA_BY.batch] : []), ...(firstWeek ? [EXTRA_BY.accounting] : []), ...(firstWeek || !monthBlockIds.has(EXTRA_BY.newsletter.id) ? [EXTRA_BY.newsletter] : [])].filter(s => !placed.some(p => p.blockId === s.id));
-  const addPlaced = (blockId, day, mins) => upd(w => ({
-    ...w,
+  const addPlaced = (blockId, day, mins) => upd(w => _objectSpread(_objectSpread({}, w), {}, {
     placed: [...w.placed, {
       uid: genId("p"),
       blockId,
@@ -637,12 +650,10 @@ function App() {
       done: false
     }]
   }));
-  const movePlaced = (uid, day) => upd(w => ({
-    ...w,
-    placed: w.placed.map(p => p.uid === uid ? {
-      ...p,
+  const movePlaced = (uid, day) => upd(w => _objectSpread(_objectSpread({}, w), {}, {
+    placed: w.placed.map(p => p.uid === uid ? _objectSpread(_objectSpread({}, p), {}, {
       day
-    } : p)
+    }) : p)
   }));
   // Move a placed block to a day AND slot it before beforeUid (or at the end of that day's blocks).
   const reorderPlaced = (uid, day, beforeUid) => upd(w => {
@@ -651,10 +662,9 @@ function App() {
     if (from < 0 || beforeUid === uid) return w;
     const sp = items.splice(from, 1);
     if (sp.length === 0) return w;
-    const it = {
-      ...sp[0],
+    const it = _objectSpread(_objectSpread({}, sp[0]), {}, {
       day
-    };
+    });
     let insertAt = items.length;
     if (beforeUid) {
       const idx = items.findIndex(p => p.uid === beforeUid);
@@ -665,46 +675,36 @@ function App() {
       insertAt = lastIdx >= 0 ? lastIdx + 1 : items.length;
     }
     items.splice(insertAt, 0, it);
-    return {
-      ...w,
+    return _objectSpread(_objectSpread({}, w), {}, {
       placed: items
-    };
+    });
   });
   const removePlaced = uid => upd(w => {
+    var _w$tSkip, _w$tSkip2;
     const it = w.placed.find(p => p.uid === uid);
-    const tSkip = it && it.blockId.startsWith("tp-") ? Array.from(new Set([...(w.tSkip ?? []), it.blockId])) : w.tSkip ?? [];
-    return {
-      ...w,
+    const tSkip = it && it.blockId.startsWith("tp-") ? Array.from(new Set([...((_w$tSkip = w.tSkip) !== null && _w$tSkip !== void 0 ? _w$tSkip : []), it.blockId])) : (_w$tSkip2 = w.tSkip) !== null && _w$tSkip2 !== void 0 ? _w$tSkip2 : [];
+    return _objectSpread(_objectSpread({}, w), {}, {
       placed: w.placed.filter(p => p.uid !== uid),
       tSkip
-    };
+    });
   });
-  const togglePlaced = uid => upd(w => ({
-    ...w,
-    placed: w.placed.map(p => p.uid === uid ? {
-      ...p,
+  const togglePlaced = uid => upd(w => _objectSpread(_objectSpread({}, w), {}, {
+    placed: w.placed.map(p => p.uid === uid ? _objectSpread(_objectSpread({}, p), {}, {
       done: !p.done
-    } : p)
+    }) : p)
   }));
-  const setPlacedMins = (uid, mins) => upd(w => ({
-    ...w,
-    placed: w.placed.map(p => p.uid === uid ? {
-      ...p,
+  const setPlacedMins = (uid, mins) => upd(w => _objectSpread(_objectSpread({}, w), {}, {
+    placed: w.placed.map(p => p.uid === uid ? _objectSpread(_objectSpread({}, p), {}, {
       mins
-    } : p)
+    }) : p)
   }));
-  const setPlacedPatch = (uid, patch) => upd(w => ({
-    ...w,
-    placed: w.placed.map(p => p.uid === uid ? {
-      ...p,
-      ...patch
-    } : p)
+  const setPlacedPatch = (uid, patch) => upd(w => _objectSpread(_objectSpread({}, w), {}, {
+    placed: w.placed.map(p => p.uid === uid ? _objectSpread(_objectSpread({}, p), patch) : p)
   }));
   const addNote = () => {
     const t = noteText.trim();
     if (!t) return;
-    upd(w => ({
-      ...w,
+    upd(w => _objectSpread(_objectSpread({}, w), {}, {
       items: [...w.items, {
         id: genId("n"),
         text: t
@@ -712,18 +712,14 @@ function App() {
     }));
     setNoteText("");
   };
-  const setNote = (id, text) => text.trim() ? upd(w => ({
-    ...w,
-    items: w.items.map(n => n.id === id ? {
-      ...n,
+  const setNote = (id, text) => text.trim() ? upd(w => _objectSpread(_objectSpread({}, w), {}, {
+    items: w.items.map(n => n.id === id ? _objectSpread(_objectSpread({}, n), {}, {
       text: text.trim()
-    } : n)
-  })) : upd(w => ({
-    ...w,
+    }) : n)
+  })) : upd(w => _objectSpread(_objectSpread({}, w), {}, {
     items: w.items.filter(n => n.id !== id)
   }));
-  const removeNote = id => upd(w => ({
-    ...w,
+  const removeNote = id => upd(w => _objectSpread(_objectSpread({}, w), {}, {
     items: w.items.filter(n => n.id !== id)
   }));
   const beginNoteDrag = (e, id) => {
@@ -754,11 +750,10 @@ function App() {
       const r = noteRefs.current[wd.items.length - 1].getBoundingClientRect();
       if (e.clientY > r.bottom) over = wd.items.length - 1;
     }
-    setNoteDrag({
-      ...noteDrag,
+    setNoteDrag(_objectSpread(_objectSpread({}, noteDrag), {}, {
       y: e.clientY,
       over
-    });
+    }));
   };
   const noteUp = () => {
     if (!noteDrag) return;
@@ -769,10 +764,9 @@ function App() {
         const items = [...w.items];
         const sp = items.splice(from, 1);
         if (sp.length > 0) items.splice(to, 0, sp[0]);
-        return {
-          ...w,
+        return _objectSpread(_objectSpread({}, w), {}, {
           items
-        };
+        });
       });
     }
     setNoteDrag(null);
@@ -881,25 +875,23 @@ function App() {
     if (drag.mode === "resize") {
       // Pulling down adds time, pulling up takes it away.
       const mins = Math.min(720, Math.max(15, drag.mins + Math.round((e.clientY - drag.startY) / 7) * 15));
-      setDrag({
-        ...drag,
+      setDrag(_objectSpread(_objectSpread({}, drag), {}, {
         y: e.clientY,
         resizeMins: mins
-      });
+      }));
       return;
     }
     const moved = drag.moved || Math.abs(e.clientX - drag.startX) > 6 || Math.abs(e.clientY - drag.startY) > 6;
     const hover = moved ? hitTarget(e.clientX, e.clientY) : null;
     let overUid = null;
     if (moved && hover && hover.startsWith("day-")) overUid = hitBlock(e.clientY, parseInt(hover.slice(4), 10), drag.uid);
-    setDrag({
-      ...drag,
+    setDrag(_objectSpread(_objectSpread({}, drag), {}, {
       x: e.clientX,
       y: e.clientY,
       moved,
       hover,
       overUid
-    });
+    }));
   };
   const handleUp = e => {
     if (!drag) return;
@@ -956,7 +948,10 @@ function App() {
   const zoneText = z => z === "am" ? theme === "light" ? "text-[#41718A]" : "text-[#8FBFCC]" : z === "pm" ? theme === "light" ? "text-[#5C7D18]" : "text-[#9CC45E]" : z === "eve" ? theme === "light" ? "text-[#C14F40]" : "text-[#E8837A]" : z === "night" ? theme === "light" ? "text-[#141312]" : "text-[#6B6660]" : z === "open" ? theme === "light" ? "text-[#78716C]" : "text-[#8E8880]" : T.sub;
 
   // Custom block color wins; the zone color is the default.
-  const blockColor = b => b.color ?? zoneColor(b.zone);
+  const blockColor = b => {
+    var _b$color;
+    return (_b$color = b.color) !== null && _b$color !== void 0 ? _b$color : zoneColor(b.zone);
+  };
   const Seg = ({
     options,
     value,
@@ -977,14 +972,12 @@ function App() {
     return h + "h" + r + "m";
   };
   const fmtPts = v => v % 1 === 0 ? String(v) : v.toFixed(1);
-  const bumpSleep = d => setCfg(c => ({
-    ...c,
+  const bumpSleep = d => setCfg(c => _objectSpread(_objectSpread({}, c), {}, {
     sleep: Math.min(10, Math.max(4, Math.round((c.sleep + d) * 2) / 2))
   }));
   const commitName = () => {
     const v = stripPoss(nameDraft).slice(0, 24);
-    if (v.length > 0) setCfg(c => ({
-      ...c,
+    if (v.length > 0) setCfg(c => _objectSpread(_objectSpread({}, c), {}, {
       name: v
     }));
     setNameEdit(false);
@@ -994,8 +987,7 @@ function App() {
     if (!label) return;
     const mins = parseLen(suggNewLen);
     const id = genId("b");
-    setCfg(c => ({
-      ...c,
+    setCfg(c => _objectSpread(_objectSpread({}, c), {}, {
       palette: [...c.palette, {
         id,
         label,
@@ -1008,64 +1000,68 @@ function App() {
     setSuggNewLen("");
     setSuggNewOpen(false);
   };
-  const blockPopover = p => editUid === p.uid ? /*#__PURE__*/_jsxs("div", {
-    onPointerDown: e => e.stopPropagation(),
-    onBlur: e => {
-      const r = e.relatedTarget;
-      if (!(r && e.currentTarget.contains(r))) setEditUid(null);
-    },
-    className: "absolute right-0 top-7 z-30 flex items-center gap-1 rounded-xl border p-2 shadow-lg " + T.card,
-    style: {
-      backgroundColor: theme === "light" ? "#ffffff" : "#1D1C1A"
-    },
-    children: [/*#__PURE__*/_jsx("input", {
-      autoFocus: true,
-      defaultValue: placedLabel(p),
+  const blockPopover = p => {
+    var _p$t;
+    return editUid === p.uid ? /*#__PURE__*/_jsxs("div", {
+      onPointerDown: e => e.stopPropagation(),
       onBlur: e => {
-        const v = e.target.value.trim();
-        if (v && v !== placedLabel(p)) setPlacedPatch(p.uid, {
-          label: v
-        });
+        const r = e.relatedTarget;
+        if (!(r && e.currentTarget.contains(r))) setEditUid(null);
       },
-      onKeyDown: e => {
-        if (e.key === "Enter") e.target.blur();
+      className: "absolute right-0 top-7 z-30 flex items-center gap-1 rounded-xl border p-2 shadow-lg " + T.card,
+      style: {
+        backgroundColor: theme === "light" ? "#ffffff" : "#1D1C1A"
       },
-      className: "w-32 rounded-full border px-2 py-1 text-[11px] " + T.input,
-      title: "Name for just this one block"
-    }), /*#__PURE__*/_jsx("input", {
-      defaultValue: fmtDur(p.mins),
-      onBlur: e => {
-        const m = parseLen(e.target.value);
-        if (m !== p.mins) setPlacedPatch(p.uid, {
-          mins: m
-        });
-      },
-      onKeyDown: e => {
-        if (e.key === "Enter") e.target.blur();
-      },
-      className: "w-16 rounded-full border px-2 py-1 text-[11px] " + T.input,
-      title: "Length, e.g. 90m or 1h30"
-    }), /*#__PURE__*/_jsx("input", {
-      defaultValue: p.t ?? "",
-      placeholder: "Cal time",
-      onBlur: e => {
-        const v = normCalT(e.target.value);
-        if (v !== (p.t ?? undefined)) setPlacedPatch(p.uid, {
-          t: v
-        });
-      },
-      onKeyDown: e => {
-        if (e.key === "Enter") e.target.blur();
-      },
-      className: "w-20 rounded-full border px-2 py-1 text-[11px] " + T.input,
-      title: "Optional clock time for the calendar export, e.g. 10:30. Leave empty and blocks stack by zone."
-    }), /*#__PURE__*/_jsx("button", {
-      onClick: () => setEditUid(null),
-      className: "px-1 text-xs " + T.faint,
-      title: "Done",
-      children: "✕"
-    })]
-  }) : null;
+      children: [/*#__PURE__*/_jsx("input", {
+        autoFocus: true,
+        defaultValue: placedLabel(p),
+        onBlur: e => {
+          const v = e.target.value.trim();
+          if (v && v !== placedLabel(p)) setPlacedPatch(p.uid, {
+            label: v
+          });
+        },
+        onKeyDown: e => {
+          if (e.key === "Enter") e.target.blur();
+        },
+        className: "w-32 rounded-full border px-2 py-1 text-[11px] " + T.input,
+        title: "Name for just this one block"
+      }), /*#__PURE__*/_jsx("input", {
+        defaultValue: fmtDur(p.mins),
+        onBlur: e => {
+          const m = parseLen(e.target.value);
+          if (m !== p.mins) setPlacedPatch(p.uid, {
+            mins: m
+          });
+        },
+        onKeyDown: e => {
+          if (e.key === "Enter") e.target.blur();
+        },
+        className: "w-16 rounded-full border px-2 py-1 text-[11px] " + T.input,
+        title: "Length, e.g. 90m or 1h30"
+      }), /*#__PURE__*/_jsx("input", {
+        defaultValue: (_p$t = p.t) !== null && _p$t !== void 0 ? _p$t : "",
+        placeholder: "Cal time",
+        onBlur: e => {
+          var _p$t2;
+          const v = normCalT(e.target.value);
+          if (v !== ((_p$t2 = p.t) !== null && _p$t2 !== void 0 ? _p$t2 : undefined)) setPlacedPatch(p.uid, {
+            t: v
+          });
+        },
+        onKeyDown: e => {
+          if (e.key === "Enter") e.target.blur();
+        },
+        className: "w-20 rounded-full border px-2 py-1 text-[11px] " + T.input,
+        title: "Optional clock time for the calendar export, e.g. 10:30. Leave empty and blocks stack by zone."
+      }), /*#__PURE__*/_jsx("button", {
+        onClick: () => setEditUid(null),
+        className: "px-1 text-xs " + T.faint,
+        title: "Done",
+        children: "✕"
+      })]
+    }) : null;
+  };
   const shareText = () => {
     const lines = ["My week: " + fmtPts(pts) + " of " + WEEK_HOURS + " h (" + pct + "%)"];
     if (shareSel.stats) lines.push(doneCount + " of " + total + " blocks · " + fmtDur(doneMins) + " of " + fmtDur(placedMins) + " planned · " + fmtPts(doneHours) + " h checked off");
@@ -1192,13 +1188,15 @@ function App() {
       const byDay = {};
       for (const p of placed) {
         if (p.day >= 0) {
-          const list = byDay[p.day] ?? [];
+          var _byDay$p$day;
+          const list = (_byDay$p$day = byDay[p.day]) !== null && _byDay$p$day !== void 0 ? _byDay$p$day : [];
           list.push(p);
           byDay[p.day] = list;
         }
       }
       for (let i = 0; i < 7; i++) {
-        const blocks = byDay[i] ?? [];
+        var _byDay$i;
+        const blocks = (_byDay$i = byDay[i]) !== null && _byDay$i !== void 0 ? _byDay$i : [];
         const cursor = {};
         for (const p of blocks) {
           const def = defOf(p.blockId);
@@ -1397,9 +1395,7 @@ function App() {
               children: "Include:"
             }), SHARE_TOGGLES.map(tg => /*#__PURE__*/_jsxs("button", {
               onClick: () => setShareSel(s => {
-                const n = {
-                  ...s
-                };
+                const n = _objectSpread({}, s);
                 n[tg.k] = !n[tg.k];
                 return n;
               }),
@@ -1516,7 +1512,7 @@ function App() {
                   v: "off",
                   label: "Off"
                 }],
-                value: wd.video ?? "auto",
+                value: (_wd$video2 = wd.video) !== null && _wd$video2 !== void 0 ? _wd$video2 : "auto",
                 onChange: v => setMode("video", v)
               })]
             }), /*#__PURE__*/_jsxs("div", {
@@ -1535,7 +1531,7 @@ function App() {
                   v: "off",
                   label: "Normal"
                 }],
-                value: wd.batch ?? "auto",
+                value: (_wd$batch2 = wd.batch) !== null && _wd$batch2 !== void 0 ? _wd$batch2 : "auto",
                 onChange: v => setMode("batch", v)
               })]
             }), /*#__PURE__*/_jsxs("div", {
@@ -1627,124 +1623,115 @@ function App() {
           })]
         }), /*#__PURE__*/_jsxs("div", {
           ref: paletteRef,
-          className: "mt-4 rounded-xl border border-dashed p-3 " + (dragging && drag?.hover === "palette" ? "border-red-400 bg-red-400/5" : theme === "light" ? "border-stone-300 bg-stone-50/50" : "border-[#3A3733] bg-[#141312]/40"),
+          className: "mt-4 rounded-xl border border-dashed p-3 " + (dragging && (drag === null || drag === void 0 ? void 0 : drag.hover) === "palette" ? "border-red-400 bg-red-400/5" : theme === "light" ? "border-stone-300 bg-stone-50/50" : "border-[#3A3733] bg-[#141312]/40"),
           children: [/*#__PURE__*/_jsx("div", {
             className: "flex flex-wrap gap-2",
-            children: cfg.palette.map(b => /*#__PURE__*/_jsxs("div", {
-              className: "group relative flex items-center",
-              children: [editChip === b.id ? /*#__PURE__*/_jsxs("div", {
-                className: "flex items-center gap-1",
-                onBlur: e => {
-                  // Close only when focus leaves the whole editor, so every field stays editable.
-                  const r = e.relatedTarget;
-                  if (!(r && e.currentTarget.contains(r))) setEditChip(null);
-                },
-                children: [/*#__PURE__*/_jsx("input", {
-                  type: "color",
-                  defaultValue: b.color ?? zoneColor(b.zone),
-                  onChange: e => setCfg(c => ({
-                    ...c,
-                    palette: c.palette.map(x => x.id === b.id ? {
-                      ...x,
-                      color: e.target.value
-                    } : x)
-                  })),
-                  title: "Block color (custom overrides the " + ZONE_NAME[b.zone].toLowerCase() + " zone color)",
-                  className: "h-6 w-8 cursor-pointer rounded-full border p-0.5 " + (theme === "light" ? "border-stone-300 bg-stone-50" : "border-[#3A3733] bg-[#141312]")
-                }), b.color ? /*#__PURE__*/_jsx("button", {
-                  onClick: () => setCfg(c => ({
-                    ...c,
-                    palette: c.palette.map(x => {
-                      if (x.id !== b.id) return x;
-                      const nx = {
-                        ...x
-                      };
-                      delete nx.color;
-                      return nx;
-                    })
-                  })),
-                  className: "rounded-full px-1.5 py-0.5 text-[10px] " + T.sub + " hover:text-[#D85F4F]",
-                  title: "Back to the zone color",
-                  children: "↺"
-                }) : null, /*#__PURE__*/_jsx("input", {
-                  autoFocus: true,
-                  defaultValue: b.label,
+            children: cfg.palette.map(b => {
+              var _b$color2;
+              return /*#__PURE__*/_jsxs("div", {
+                className: "group relative flex items-center",
+                children: [editChip === b.id ? /*#__PURE__*/_jsxs("div", {
+                  className: "flex items-center gap-1",
                   onBlur: e => {
-                    const v = e.target.value.trim();
-                    if (v) setCfg(c => ({
-                      ...c,
-                      palette: c.palette.map(x => x.id === b.id ? {
-                        ...x,
-                        label: v
-                      } : x)
-                    }));
+                    // Close only when focus leaves the whole editor, so every field stays editable.
+                    const r = e.relatedTarget;
+                    if (!(r && e.currentTarget.contains(r))) setEditChip(null);
                   },
-                  onKeyDown: e => {
-                    if (e.key === "Enter") e.target.blur();
-                  },
-                  className: "w-36 rounded-full border px-2.5 py-1 text-xs " + T.input
-                }), /*#__PURE__*/_jsx("input", {
-                  defaultValue: fmtDur(b.mins),
-                  onBlur: e => {
-                    const m = parseLen(e.target.value);
-                    setCfg(c => ({
-                      ...c,
-                      palette: c.palette.map(x => x.id === b.id ? {
-                        ...x,
-                        mins: m
-                      } : x)
-                    }));
-                  },
-                  onKeyDown: e => {
-                    if (e.key === "Enter") e.target.blur();
-                  },
-                  className: "w-16 rounded-full border px-2.5 py-1 text-xs " + T.input
-                })]
-              }) : /*#__PURE__*/_jsxs("button", {
-                onPointerDown: e => beginChipDrag(e, "palette", b.id, b.label, b.zone, b.mins),
-                onPointerMove: handleMove,
-                onPointerUp: handleUp,
-                onLostPointerCapture: handleUp,
-                title: "Drag into a day · click to drop it in today · drag back here to remove a placed block",
-                className: "flex cursor-grab touch-none select-none items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors " + T.card + " hover:border-[#7CA621]",
-                style: {
-                  color: theme === "light" ? "#1E1E1E" : "#F5F3EF"
-                },
-                children: [/*#__PURE__*/_jsx("button", {
-                  onPointerDown: e => e.stopPropagation(),
-                  onClick: () => setCfg(c => ({
-                    ...c,
-                    palette: c.palette.map(x => x.id === b.id ? {
-                      ...x,
-                      zone: ZONE_ORDER[(ZONE_ORDER.indexOf(x.zone) + 1) % ZONE_ORDER.length]
-                    } : x)
-                  })),
-                  className: "h-2 w-2 shrink-0 rounded-full",
+                  children: [/*#__PURE__*/_jsx("input", {
+                    type: "color",
+                    defaultValue: (_b$color2 = b.color) !== null && _b$color2 !== void 0 ? _b$color2 : zoneColor(b.zone),
+                    onChange: e => setCfg(c => _objectSpread(_objectSpread({}, c), {}, {
+                      palette: c.palette.map(x => x.id === b.id ? _objectSpread(_objectSpread({}, x), {}, {
+                        color: e.target.value
+                      }) : x)
+                    })),
+                    title: "Block color (custom overrides the " + ZONE_NAME[b.zone].toLowerCase() + " zone color)",
+                    className: "h-6 w-8 cursor-pointer rounded-full border p-0.5 " + (theme === "light" ? "border-stone-300 bg-stone-50" : "border-[#3A3733] bg-[#141312]")
+                  }), b.color ? /*#__PURE__*/_jsx("button", {
+                    onClick: () => setCfg(c => _objectSpread(_objectSpread({}, c), {}, {
+                      palette: c.palette.map(x => {
+                        if (x.id !== b.id) return x;
+                        const nx = _objectSpread({}, x);
+                        delete nx.color;
+                        return nx;
+                      })
+                    })),
+                    className: "rounded-full px-1.5 py-0.5 text-[10px] " + T.sub + " hover:text-[#D85F4F]",
+                    title: "Back to the zone color",
+                    children: "↺"
+                  }) : null, /*#__PURE__*/_jsx("input", {
+                    autoFocus: true,
+                    defaultValue: b.label,
+                    onBlur: e => {
+                      const v = e.target.value.trim();
+                      if (v) setCfg(c => _objectSpread(_objectSpread({}, c), {}, {
+                        palette: c.palette.map(x => x.id === b.id ? _objectSpread(_objectSpread({}, x), {}, {
+                          label: v
+                        }) : x)
+                      }));
+                    },
+                    onKeyDown: e => {
+                      if (e.key === "Enter") e.target.blur();
+                    },
+                    className: "w-36 rounded-full border px-2.5 py-1 text-xs " + T.input
+                  }), /*#__PURE__*/_jsx("input", {
+                    defaultValue: fmtDur(b.mins),
+                    onBlur: e => {
+                      const m = parseLen(e.target.value);
+                      setCfg(c => _objectSpread(_objectSpread({}, c), {}, {
+                        palette: c.palette.map(x => x.id === b.id ? _objectSpread(_objectSpread({}, x), {}, {
+                          mins: m
+                        }) : x)
+                      }));
+                    },
+                    onKeyDown: e => {
+                      if (e.key === "Enter") e.target.blur();
+                    },
+                    className: "w-16 rounded-full border px-2.5 py-1 text-xs " + T.input
+                  })]
+                }) : /*#__PURE__*/_jsxs("button", {
+                  onPointerDown: e => beginChipDrag(e, "palette", b.id, b.label, b.zone, b.mins),
+                  onPointerMove: handleMove,
+                  onPointerUp: handleUp,
+                  onLostPointerCapture: handleUp,
+                  title: "Drag into a day · click to drop it in today · drag back here to remove a placed block",
+                  className: "flex cursor-grab touch-none select-none items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors " + T.card + " hover:border-[#7CA621]",
                   style: {
-                    backgroundColor: blockColor(b)
+                    color: theme === "light" ? "#1E1E1E" : "#F5F3EF"
                   },
-                  title: "Time of day: " + ZONE_NAME[b.zone] + " (click to change)"
-                }), b.label, /*#__PURE__*/_jsx("span", {
-                  className: "text-[10px] tabular-nums " + T.faint,
-                  children: fmtDur(b.mins)
+                  children: [/*#__PURE__*/_jsx("button", {
+                    onPointerDown: e => e.stopPropagation(),
+                    onClick: () => setCfg(c => _objectSpread(_objectSpread({}, c), {}, {
+                      palette: c.palette.map(x => x.id === b.id ? _objectSpread(_objectSpread({}, x), {}, {
+                        zone: ZONE_ORDER[(ZONE_ORDER.indexOf(x.zone) + 1) % ZONE_ORDER.length]
+                      }) : x)
+                    })),
+                    className: "h-2 w-2 shrink-0 rounded-full",
+                    style: {
+                      backgroundColor: blockColor(b)
+                    },
+                    title: "Time of day: " + ZONE_NAME[b.zone] + " (click to change)"
+                  }), b.label, /*#__PURE__*/_jsx("span", {
+                    className: "text-[10px] tabular-nums " + T.faint,
+                    children: fmtDur(b.mins)
+                  })]
+                }), /*#__PURE__*/_jsx("button", {
+                  onPointerDown: e => e.stopPropagation(),
+                  onClick: () => setCfg(c => _objectSpread(_objectSpread({}, c), {}, {
+                    palette: c.palette.filter(x => x.id !== b.id)
+                  })),
+                  className: "absolute -top-1.5 -right-1.5 hidden h-4 w-4 items-center justify-center rounded-full bg-stone-600 text-[9px] text-white group-hover:flex",
+                  title: "Delete this block from the palette",
+                  children: "×"
+                }), /*#__PURE__*/_jsx("button", {
+                  onPointerDown: e => e.stopPropagation(),
+                  onClick: () => setEditChip(b.id),
+                  className: "absolute -top-1.5 right-4 hidden h-4 w-4 items-center justify-center rounded-full bg-stone-600 text-[9px] text-white group-hover:flex",
+                  title: "Rename or retime",
+                  children: "✎"
                 })]
-              }), /*#__PURE__*/_jsx("button", {
-                onPointerDown: e => e.stopPropagation(),
-                onClick: () => setCfg(c => ({
-                  ...c,
-                  palette: c.palette.filter(x => x.id !== b.id)
-                })),
-                className: "absolute -top-1.5 -right-1.5 hidden h-4 w-4 items-center justify-center rounded-full bg-stone-600 text-[9px] text-white group-hover:flex",
-                title: "Delete this block from the palette",
-                children: "×"
-              }), /*#__PURE__*/_jsx("button", {
-                onPointerDown: e => e.stopPropagation(),
-                onClick: () => setEditChip(b.id),
-                className: "absolute -top-1.5 right-4 hidden h-4 w-4 items-center justify-center rounded-full bg-stone-600 text-[9px] text-white group-hover:flex",
-                title: "Rename or retime",
-                children: "✎"
-              })]
-            }, b.id))
+              }, b.id);
+            })
           }), /*#__PURE__*/_jsxs("div", {
             className: "mt-3 flex flex-wrap items-center gap-2",
             children: [/*#__PURE__*/_jsx("input", {
@@ -1760,8 +1747,7 @@ function App() {
             }), /*#__PURE__*/_jsx("button", {
               onClick: () => {
                 if (!newLabel.trim()) return;
-                setCfg(c => ({
-                  ...c,
+                setCfg(c => _objectSpread(_objectSpread({}, c), {}, {
                   palette: [...c.palette, {
                     id: genId("b"),
                     label: newLabel.trim(),
@@ -1792,7 +1778,7 @@ function App() {
             const dMins = dayBlocks.reduce((a, p) => a + p.mins, 0);
             const dDoneMins = dayBlocks.filter(p => p.done).reduce((a, p) => a + p.mins, 0);
             const dPct = dMins ? Math.round(dDoneMins / dMins * 100) : 0;
-            const isHover = dragging && drag?.hover === "day-" + i;
+            const isHover = dragging && (drag === null || drag === void 0 ? void 0 : drag.hover) === "day-" + i;
             return /*#__PURE__*/_jsxs("div", {
               className: "rounded-2xl border p-2 " + T.card + " " + (i === todayIdx ? "ring-1 ring-[#659EB3]" : ""),
               children: [/*#__PURE__*/_jsxs("div", {
@@ -1823,10 +1809,11 @@ function App() {
                   className: "m-auto text-[10px] " + T.faint,
                   children: "drag blocks here"
                 }) : null, dayBlocks.map(p => {
+                  var _drag$resizeMins;
                   const def = defOf(p.blockId);
-                  const mins = drag?.mode === "resize" && drag.uid === p.uid ? drag.resizeMins ?? p.mins : p.mins;
+                  const mins = (drag === null || drag === void 0 ? void 0 : drag.mode) === "resize" && drag.uid === p.uid ? (_drag$resizeMins = drag.resizeMins) !== null && _drag$resizeMins !== void 0 ? _drag$resizeMins : p.mins : p.mins;
                   const h = Math.max(38, Math.round(mins * 0.45));
-                  const isDrag = drag?.mode === "move" && drag.moved && drag.uid === p.uid;
+                  const isDrag = (drag === null || drag === void 0 ? void 0 : drag.mode) === "move" && drag.moved && drag.uid === p.uid;
                   return /*#__PURE__*/_jsxs("div", {
                     ref: el => {
                       blockRefs.current[p.uid] = el;
@@ -1843,7 +1830,7 @@ function App() {
                         height: h,
                         borderColor: p.done ? theme === "light" ? "#7CA621" : "#9CC45E" : blockColor(def)
                       },
-                      children: [drag?.mode === "move" && drag.moved && drag.overUid === p.uid && drag.uid !== p.uid ? /*#__PURE__*/_jsx("div", {
+                      children: [(drag === null || drag === void 0 ? void 0 : drag.mode) === "move" && drag.moved && drag.overUid === p.uid && drag.uid !== p.uid ? /*#__PURE__*/_jsx("div", {
                         className: "absolute inset-x-0 top-0 z-20 h-[3px] rounded-full bg-[#7CA621]"
                       }) : null, /*#__PURE__*/_jsxs("div", {
                         className: "flex items-start gap-1 text-[10px] leading-tight " + (p.done ? "font-semibold " + (theme === "light" ? "text-[#5C7D18]" : "text-[#9CC45E]") : zoneText(def.zone)),
@@ -1854,7 +1841,7 @@ function App() {
                           children: placedLabel(p)
                         })]
                       }), /*#__PURE__*/_jsx("span", {
-                        className: "absolute right-1.5 bottom-0.5 text-[9px] tabular-nums " + (drag?.mode === "resize" && drag.uid === p.uid ? "font-bold text-[#7CA621]" : T.faint),
+                        className: "absolute right-1.5 bottom-0.5 text-[9px] tabular-nums " + ((drag === null || drag === void 0 ? void 0 : drag.mode) === "resize" && drag.uid === p.uid ? "font-bold text-[#7CA621]" : T.faint),
                         children: fmtDur(mins)
                       }), /*#__PURE__*/_jsx("button", {
                         onPointerDown: e => e.stopPropagation(),
@@ -1938,7 +1925,7 @@ function App() {
         }) : null]
       }), /*#__PURE__*/_jsxs("div", {
         ref: trayRef,
-        className: "rounded-2xl border p-4 shadow-sm transition-colors " + T.card + " " + (dragging && drag?.hover === "tray" ? "border-[#7CA621] bg-[#7CA621]/5" : ""),
+        className: "rounded-2xl border p-4 shadow-sm transition-colors " + T.card + " " + (dragging && (drag === null || drag === void 0 ? void 0 : drag.hover) === "tray" ? "border-[#7CA621] bg-[#7CA621]/5" : ""),
         children: [/*#__PURE__*/_jsx("h2", {
           className: "text-sm font-semibold tracking-wide uppercase",
           children: "This week · not tied to a day"
@@ -1952,7 +1939,7 @@ function App() {
             children: "drag a suggestion here"
           }) : null, placed.filter(p => p.day === -1).map(p => {
             const def = defOf(p.blockId);
-            const isDrag = drag?.mode === "move" && drag.moved && drag.uid === p.uid;
+            const isDrag = (drag === null || drag === void 0 ? void 0 : drag.mode) === "move" && drag.moved && drag.uid === p.uid;
             return /*#__PURE__*/_jsxs("div", {
               className: "group relative",
               children: [/*#__PURE__*/_jsxs("button", {
@@ -2001,7 +1988,7 @@ function App() {
             className: "text-[10px] " + T.faint,
             children: "Nothing yet. Add the first thing on your mind below."
           }) : null, wd.items.map((n, i) => {
-            const lifted = noteDrag?.id === n.id;
+            const lifted = (noteDrag === null || noteDrag === void 0 ? void 0 : noteDrag.id) === n.id;
             const hovered = noteDrag && noteDrag.id !== n.id && noteDrag.over === i;
             return /*#__PURE__*/_jsxs("div", {
               ref: el => {
@@ -2078,7 +2065,50 @@ function App() {
     }) : null]
   });
 }
+
+// Safety net: if a render crashes (usually stale saved data from an older version),
+// show a readable error screen instead of a silent blank page, with a one-click reset.
+class TopBoundary extends React.Component {
+  constructor(...args) {
+    super(...args);
+    _defineProperty(this, "state", {
+      err: null
+    });
+    _defineProperty(this, "reset", () => {
+      for (const k of Object.keys(localStorage)) if (k.startsWith("jojo-routine-v2-") || k === "jojo-routine-theme") localStorage.removeItem(k);
+      location.reload();
+    });
+  }
+  static getDerivedStateFromError(e) {
+    var _message;
+    return {
+      err: String((_message = e === null || e === void 0 ? void 0 : e.message) !== null && _message !== void 0 ? _message : e)
+    };
+  }
+  render() {
+    if (this.state.err) {
+      return /*#__PURE__*/_jsxs("div", {
+        className: "m-10 rounded-2xl bg-[#D85F4F] p-6 text-center font-sans shadow-lg",
+        children: [/*#__PURE__*/_jsx("div", {
+          className: "text-lg font-bold text-white",
+          children: "Something went wrong"
+        }), /*#__PURE__*/_jsx("div", {
+          className: "mt-2 text-sm text-white",
+          children: this.state.err.slice(0, 300)
+        }), /*#__PURE__*/_jsx("div", {
+          className: "mt-2 text-xs text-white opacity-80",
+          children: "Saved data from an older version is the usual suspect. Resetting keeps your name, palette and tiers."
+        }), /*#__PURE__*/_jsx("button", {
+          onClick: this.reset,
+          className: "mt-4 rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#D85F4F]",
+          children: "Reset my saved data"
+        })]
+      });
+    }
+    return this.props.children;
+  }
+}
 </script>
-<script>ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));</script>
+<script>ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(TopBoundary, null, React.createElement(App)));</script>
 </body>
 </html>
