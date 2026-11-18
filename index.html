@@ -321,15 +321,6 @@ function tierWeekPosts(tier, monday, weekDates) {
   });
   return out;
 }
-// Compact labels for the monthly posting-rhythm grid.
-function shortPost(l) {
-  if (l.startsWith("Magic Month")) return "MM · Day " + (l.match(/Day (\d+)/)?.[1] ?? "?");
-  if (l === "Progress Check-in") return "Check-in";
-  if (l === "Quote/Stat Card") return "Quote card";
-  if (l === "Motivational Post") return "Motiv.";
-  if (l === "Reel / Story") return "Reel";
-  return l;
-}
 const SHARE_TOGGLES = [{
   k: "stats",
   label: "Hours + blocks"
@@ -591,38 +582,41 @@ function App() {
   const monthPostsDone = monthPosts.filter(p => p.done).length;
   // Every block id placed anywhere this month, so monthly suggestions can skip items already placed.
   const monthBlockIds = new Set(monthRows.flatMap(r => weeks[r.mkey] ? normWeek(weeks[r.mkey]).placed.map(p => p.blockId) : []));
-  // The rhythm grid is tier-driven: weeks she has not touched show the tier's plan,
-  // weeks she has touched (placed or deleted tier blocks) show reality instead.
-  const rhythmCells = monthRows.map(r => {
-    if (tierActive === "off") return [];
-    const m = new Date(r.mkey + "T12:00:00");
-    const stored = weeks[r.mkey];
+  // Posting-dot plan for one calendar week (keyed by its Monday): a week she has
+  // touched (placed or deleted tier blocks) shows reality, untouched weeks show
+  // the tier's plan. Dots show up on the real calendar dates, so partial weeks
+  // at the month edges work too.
+  const planCache = {};
+  const weekPlan = mondayIso => {
+    if (planCache[mondayIso]) return planCache[mondayIso];
+    const m = new Date(mondayIso + "T12:00:00");
+    const stored = weeks[mondayIso];
     const wk = stored ? normWeek(stored) : null;
     const seen = !!wk && (wk.placed.some(p => p.blockId.startsWith("tp-")) || (wk.tSkip ?? []).length > 0);
+    let cells;
     if (seen && wk) {
-      return wk.placed.filter(p => p.blockId.startsWith("tp-")).map(p => ({
-        uid: p.uid,
+      cells = wk.placed.filter(p => p.blockId.startsWith("tp-")).map(p => ({
         day: p.day,
         done: p.done,
-        label: p.label ?? "",
-        planned: false
+        label: p.label ?? ""
+      }));
+    } else {
+      const ds = Array.from({
+        length: 7
+      }, (_, i) => {
+        const d = new Date(m);
+        d.setDate(d.getDate() + i);
+        return d;
+      });
+      cells = tierWeekPosts(tierActive, m, ds).map(x => ({
+        day: x.day,
+        done: false,
+        label: x.label
       }));
     }
-    const ds = Array.from({
-      length: 7
-    }, (_, i) => {
-      const d = new Date(m);
-      d.setDate(d.getDate() + i);
-      return d;
-    });
-    return tierWeekPosts(tierActive, m, ds).map(x => ({
-      uid: x.id,
-      day: x.day,
-      done: false,
-      label: x.label,
-      planned: true
-    }));
-  });
+    planCache[mondayIso] = cells;
+    return cells;
+  };
   const defOf = blockId => cfg.palette.find(b => b.id === blockId) ?? SUGGEST_DEFS[blockId] ?? {
     id: blockId,
     label: "Block",
@@ -1484,40 +1478,43 @@ function App() {
             }), tierActive === "off" ? /*#__PURE__*/_jsx("div", {
               className: "mt-1 text-[11px] " + T.sub,
               children: "Pick a Posting Tier above and the month fills itself in."
-            }) : /*#__PURE__*/_jsxs("div", {
+            }) : /*#__PURE__*/_jsx("div", {
               className: "mt-1 text-[11px] " + T.sub,
-              children: ["This month on the ", TIERS[tierActive].short, " plan. Dashed chips are planned, pale chips are placed, solid chips are checked off. It follows every move you make during the week."]
-            }), tierActive !== "off" ? /*#__PURE__*/_jsx("div", {
-              className: "mt-2 overflow-x-auto rounded-xl border p-2 " + T.card,
-              children: /*#__PURE__*/_jsxs("div", {
-                className: "min-w-[430px]",
-                children: [/*#__PURE__*/_jsxs("div", {
-                  className: "grid grid-cols-[5.5rem_repeat(7,minmax(0,1fr))] gap-1 text-[10px] font-medium " + T.sub,
-                  children: [/*#__PURE__*/_jsx("span", {}), ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(d => /*#__PURE__*/_jsx("span", {
-                    className: "text-center",
-                    children: d
-                  }, d))]
-                }), monthRows.map((r, ri) => /*#__PURE__*/_jsxs("div", {
-                  className: "mt-1 grid grid-cols-[5.5rem_repeat(7,minmax(0,1fr))] gap-1",
-                  children: [/*#__PURE__*/_jsx("span", {
-                    className: "flex items-center text-[10px] " + T.sub + (r.mkey === key ? " font-bold" : ""),
-                    children: "W" + (ri + 1) + " · " + new Date(r.mkey + "T12:00:00").toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric"
-                    })
-                  }), [0, 1, 2, 3, 4, 5, 6].map(d => {
-                    const ps = rhythmCells[ri].filter(p => p.day === d);
-                    return /*#__PURE__*/_jsx("span", {
-                      className: "flex min-h-[1.5rem] flex-col justify-center gap-0.5",
-                      children: ps.map(p => /*#__PURE__*/_jsx("span", {
+              children: "Posting days at a glance. A grey dot is a post to make that day; it turns brand green once checked off. Hover a dot to see the post."
+            }), tierActive !== "off" ? /*#__PURE__*/_jsxs("div", {
+              className: "mt-2 rounded-xl border p-3 " + T.card,
+              children: [/*#__PURE__*/_jsx("div", {
+                className: "grid grid-cols-7 gap-1 text-center text-[10px] font-medium " + T.sub,
+                children: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(d => /*#__PURE__*/_jsx("span", {
+                  children: d
+                }, d))
+              }), /*#__PURE__*/_jsxs("div", {
+                className: "mt-1 grid grid-cols-7 gap-1",
+                children: [Array.from({
+                  length: (new Date(anchor.getFullYear(), anchor.getMonth(), 1).getDay() + 6) % 7
+                }, (_, i) => /*#__PURE__*/_jsx("span", {}, "pad" + i)), Array.from({
+                  length: new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0).getDate()
+                }, (_, i) => {
+                  const dt = new Date(anchor.getFullYear(), anchor.getMonth(), i + 1);
+                  const dk = isoDate(dt);
+                  const monday = isoDate(mondayOf(dt));
+                  const dots = weekPlan(monday).filter(p => p.day === (dt.getDay() + 6) % 7);
+                  const today = dk === isoDate(new Date());
+                  return /*#__PURE__*/_jsxs("span", {
+                    className: "flex h-9 flex-col items-center justify-center rounded-lg " + (today ? theme === "light" ? "bg-[#7CA621]/15" : "bg-[#7CA621]/20" : ""),
+                    children: [/*#__PURE__*/_jsx("span", {
+                      className: "text-[10px] tabular-nums " + (dots.length > 0 ? "font-semibold " + (theme === "light" ? "text-[#1E1E1E]" : "text-[#F5F3EF]") : T.faint),
+                      children: i + 1
+                    }), /*#__PURE__*/_jsx("span", {
+                      className: "mt-0.5 flex h-1.5 items-center gap-0.5",
+                      children: dots.map((p, di) => /*#__PURE__*/_jsx("span", {
                         title: p.label,
-                        className: "truncate rounded-full px-1 py-0.5 text-center text-[10px] font-medium " + (p.done ? theme === "light" ? "bg-[#7CA621] text-white" : "bg-[#9CC45E] text-[#141312]" : p.planned ? theme === "light" ? "border border-dashed border-[#7CA621] text-[#5C7D18]" : "border border-dashed border-[#9CC45E] text-[#9CC45E]" : theme === "light" ? "bg-[#7CA621]/15 text-[#5C7D18]" : "bg-[#7CA621]/20 text-[#9CC45E]"),
-                        children: shortPost(p.label)
-                      }, p.uid))
-                    }, d);
-                  })]
-                }, r.mkey))]
-              })
+                        className: "h-1.5 w-1.5 rounded-full " + (p.done ? theme === "light" ? "bg-[#7CA621]" : "bg-[#9CC45E]" : theme === "light" ? "bg-stone-400" : "bg-[#6E6862]")
+                      }, di))
+                    })]
+                  }, dk);
+                })]
+              })]
             }) : null]
           }), /*#__PURE__*/_jsx("div", {
             className: "mt-3 space-y-1",
