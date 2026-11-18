@@ -1,0 +1,1471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jojo's Weekly Time Budget</title>
+<meta name="description" content="Free weekly time budget: drag your week together block by block. Hour-based progress where sleep counts. From Jojo Creative Tech.">
+<style>body { margin: 0; }</style>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const {
+  useState,
+  useEffect,
+  useRef
+} = React;
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+// Total hours in a week: the progress ceiling. Sleep is credited as points,
+// so 100% means every waking hour landed on a planned block.
+const WEEK_HOURS = 168;
+const ZONE_ORDER = ["am", "noon", "pm", "eve", "night", "open"];
+const ZONE_NAME = {
+  am: "Morning",
+  noon: "Midday",
+  pm: "Afternoon",
+  eve: "Evening",
+  night: "Late night",
+  open: "Any time"
+};
+// Default calendar start hour per zone for the .ics export; blocks stack within a zone.
+const ZONE_CAL_START = {
+  am: 9,
+  noon: 12,
+  pm: 14,
+  eve: 17,
+  night: 20,
+  open: 10
+};
+function icsStamp(d) {
+  const p = n => String(n).padStart(2, "0");
+  return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + "T" + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+}
+function escIcs(s) {
+  return s.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+}
+const VIDEO_WEDS = new Set(["2026-11-18", "2026-12-02", "2026-12-16", "2027-01-06", "2027-01-20", "2027-02-03", "2027-02-17", "2027-03-03", "2027-03-17", "2027-03-31", "2027-04-07", "2027-04-14", "2027-04-21", "2027-04-28"]);
+function isoDate(d) {
+  const t = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+  return t.toISOString().slice(0, 10);
+}
+function mondayOf(d) {
+  const m = new Date(d);
+  const wd = (m.getDay() + 6) % 7;
+  m.setDate(m.getDate() - wd);
+  return m;
+}
+function parseLen(s) {
+  const t = s.trim().toLowerCase().replace(/\s+/g, "");
+  if (!t) return 60;
+  let m = /^(\d+)h(\d{1,2})?m?$/.exec(t);
+  if (m) return parseInt(m[1], 10) * 60 + (m[2] ? parseInt(m[2], 10) : 0);
+  m = /^(\d+)m$/.exec(t);
+  if (m) return parseInt(m[1], 10);
+  if (/^\d+$/.test(t)) return parseInt(t, 10);
+  return 60;
+}
+function genId(p) {
+  return p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+function normPlaced(raw) {
+  const p = raw && typeof raw === "object" ? raw : {};
+  return {
+    uid: String(p.uid ?? genId("p")),
+    blockId: String(p.blockId ?? ""),
+    day: typeof p.day === "number" && p.day >= -1 && p.day <= 6 ? p.day : -1,
+    mins: typeof p.mins === "number" && p.mins > 0 ? Math.min(720, p.mins) : 60,
+    done: !!p.done
+  };
+}
+function normItems(raw) {
+  if (Array.isArray(raw)) {
+    return raw.filter(t => t && typeof t === "object" && typeof t.text === "string" && t.text.trim()).map(t => ({
+      id: String(t.id ?? genId("n")),
+      text: t.text.trim()
+    }));
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    return raw.split("\n").map(l => l.trim()).filter(Boolean).map(l => ({
+      id: genId("n"),
+      text: l
+    }));
+  }
+  return [];
+}
+function normWeek(raw) {
+  const placed = Array.isArray(raw && raw.placed) ? raw.placed.map(normPlaced) : [];
+  return {
+    placed,
+    items: normItems(raw && raw.items !== undefined ? raw.items : raw && raw.notes),
+    video: raw && typeof raw.video === "string" ? raw.video : "auto",
+    batch: raw && typeof raw.batch === "string" ? raw.batch : "auto"
+  };
+}
+function normPalette(arr) {
+  return arr.map(b => {
+    const o = b && typeof b === "object" ? b : {};
+    const zoneRaw = typeof o.zone === "string" ? o.zone : "noon";
+    const out = {
+      id: String(o.id ?? genId("b")),
+      label: String(o.label ?? "Block"),
+      zone: ZONE_ORDER.includes(zoneRaw) ? zoneRaw : "noon",
+      mins: typeof o.mins === "number" && o.mins > 0 ? Math.min(720, o.mins) : 60
+    };
+    if (typeof o.color === "string" && /^#[0-9a-fA-F]{3,8}$/.test(o.color)) out.color = o.color;
+    return out;
+  });
+}
+// Average hours of sleep per night: 4 to 10, in half-hour steps. Default 7.
+function normSleep(v) {
+  if (typeof v !== "number" || !isFinite(v)) return 7;
+  return Math.min(10, Math.max(4, Math.round(v * 2) / 2));
+}
+// Owner name shown in the header ("X's Weekly Time Budget"). Default "Jojo".
+function normName(v) {
+  if (typeof v !== "string") return "Jojo";
+  const s = stripPoss(v).slice(0, 24);
+  return s.length > 0 ? s : "Jojo";
+}
+// Possessive that stays correct for names ending in s: Chris -> Chris', Jojo -> Jojo's.
+function poss(n) {
+  return n.toLowerCase().endsWith("s") ? n + "'" : n + "'s";
+}
+// Strip a possessive someone typed into the name box: "Sam's" or "Sam'" -> "Sam".
+// Without this, poss() would double it up into "Sam's'".
+function stripPoss(v) {
+  let s = v.trim();
+  if (s.toLowerCase().endsWith("'s")) s = s.slice(0, -2).trim();else if (s.endsWith("'")) s = s.slice(0, -1).trim();
+  return s;
+}
+const defaultCfg = () => ({
+  palette: [{
+    id: "post",
+    label: "Post + Engage",
+    zone: "am",
+    mins: 30
+  }, {
+    id: "workout",
+    label: "Workout",
+    zone: "am",
+    mins: 60
+  }, {
+    id: "deep",
+    label: "Deep Work · The Anchor",
+    zone: "am",
+    mins: 180
+  }, {
+    id: "lunch",
+    label: "Lunch",
+    zone: "noon",
+    mins: 60
+  }, {
+    id: "money",
+    label: "Money Work",
+    zone: "pm",
+    mins: 120
+  }, {
+    id: "prep",
+    label: "Dinner Prep + Reset",
+    zone: "pm",
+    mins: 120
+  }, {
+    id: "dinner",
+    label: "Dinner",
+    zone: "eve",
+    mins: 60
+  }, {
+    id: "evening",
+    label: "Evening Work Block",
+    zone: "eve",
+    mins: 120
+  }, {
+    id: "wrap",
+    label: "Wrap-Up",
+    zone: "night",
+    mins: 30
+  }, {
+    id: "play",
+    label: "Free Time",
+    zone: "night",
+    mins: 120
+  }],
+  sleep: 7,
+  name: "Jojo"
+});
+const SUGGEST_WEEKLY = [{
+  id: "aftblog",
+  label: "Weekly Blog",
+  mins: 90
+}, {
+  id: "clientblog",
+  label: "Anchor Post",
+  mins: 90
+}, {
+  id: "editing",
+  label: "Weekly editing pass",
+  mins: 90
+}, {
+  id: "reset",
+  label: "Sunday Reset",
+  mins: 45
+}];
+const EXTRA_BY = {
+  video: {
+    id: "video",
+    label: "Anchor video: film + publish",
+    mins: 240
+  },
+  batch: {
+    id: "batch",
+    label: "Batching: 24 posts",
+    mins: 240
+  },
+  accounting: {
+    id: "accounting",
+    label: "Monthly accounting",
+    mins: 90
+  },
+  newsletter: {
+    id: "newsletter",
+    label: "Monthly newsletter",
+    mins: 90
+  }
+};
+const SHARE_TOGGLES = [{
+  k: "stats",
+  label: "Hours + blocks"
+}, {
+  k: "streak",
+  label: "Streak"
+}, {
+  k: "priorities",
+  label: "Top 3 priorities"
+}, {
+  k: "brand",
+  label: "JjCT credit"
+}];
+
+// Full definitions for every suggestion block id, so placed blocks keep
+// their real label even though suggestions never live in the palette.
+const SUGGEST_DEFS = {};
+for (const s of SUGGEST_WEEKLY) SUGGEST_DEFS[s.id] = {
+  id: s.id,
+  label: s.label,
+  zone: "pm",
+  mins: s.mins
+};
+for (const k of Object.keys(EXTRA_BY)) SUGGEST_DEFS[k] = {
+  id: k,
+  label: EXTRA_BY[k].label,
+  zone: "pm",
+  mins: EXTRA_BY[k].mins
+};
+function App() {
+  const [theme, setTheme] = useState("light");
+  const [anchor, setAnchor] = useState(() => mondayOf(new Date()));
+  const [weeks, setWeeks] = useState({});
+  const [cfg, setCfg] = useState(defaultCfg());
+  const [editChip, setEditChip] = useState(null);
+  const [newLen, setNewLen] = useState("");
+  const [newLabel, setNewLabel] = useState("");
+  const [noteText, setNoteText] = useState("");
+  const [noteDrag, setNoteDrag] = useState(null);
+  const [suggNewOpen, setSuggNewOpen] = useState(false);
+  const [suggNewLabel, setSuggNewLabel] = useState("");
+  const [suggNewLen, setSuggNewLen] = useState("");
+  const [shareOpen, setShareOpen] = useState(false);
+  const [nameEdit, setNameEdit] = useState(false);
+  const [nameDraft, setNameDraft] = useState("");
+  const [shareCopied, setShareCopied] = useState("");
+  const [shareSel, setShareSel] = useState({
+    stats: true,
+    streak: true,
+    priorities: true,
+    brand: true
+  });
+  const [loaded, setLoaded] = useState(false);
+  const [drag, setDrag] = useState(null);
+  const dayRefs = useRef([]);
+  const trayRef = useRef(null);
+  const paletteRef = useRef(null);
+  const noteRefs = useRef([]);
+  const blockRefs = useRef({});
+  useEffect(() => {
+    try {
+      const th = localStorage.getItem("jojo-routine-theme");
+      if (th === "dark" || th === "light") setTheme(th);
+      const c = localStorage.getItem("jojo-routine-v2-cfg");
+      if (c) {
+        const parsed = JSON.parse(c);
+        if (parsed && Array.isArray(parsed.palette)) setCfg({
+          palette: normPalette(parsed.palette),
+          sleep: normSleep(parsed.sleep),
+          name: normName(parsed.name)
+        });
+      }
+      const w = localStorage.getItem("jojo-routine-v2-weeks");
+      if (w) {
+        const parsed = JSON.parse(w);
+        if (parsed && typeof parsed === "object") {
+          const out = {};
+          for (const k of Object.keys(parsed)) out[k] = normWeek(parsed[k]);
+          setWeeks(out);
+        }
+      }
+    } catch (e) {}
+    setLoaded(true);
+  }, []);
+  useEffect(() => {
+    try {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap";
+      document.head.appendChild(link);
+    } catch (e) {}
+  }, []);
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      localStorage.setItem("jojo-routine-theme", theme);
+      localStorage.setItem("jojo-routine-v2-cfg", JSON.stringify(cfg));
+      localStorage.setItem("jojo-routine-v2-weeks", JSON.stringify(weeks));
+    } catch (e) {}
+  }, [theme, cfg, weeks, loaded]);
+  const key = isoDate(anchor);
+  const wd = weeks[key] ? normWeek(weeks[key]) : normWeek(undefined);
+  const upd = fn => setWeeks(s => ({
+    ...s,
+    [key]: fn(normWeek(s[key]))
+  }));
+  const dates = Array.from({
+    length: 7
+  }, (_, i) => {
+    const d = new Date(anchor);
+    d.setDate(d.getDate() + i);
+    return d;
+  });
+  const wedIso = isoDate(dates[2]);
+  const videoAuto = VIDEO_WEDS.has(wedIso);
+  const monthLast = new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0);
+  const batchAuto = isoDate(monthLast) >= isoDate(anchor) && isoDate(monthLast) <= isoDate(dates[6]);
+  const firstWeek = anchor.getDate() <= 7;
+  const videoWeek = (wd.video ?? "auto") === "auto" ? videoAuto : wd.video === "video";
+  const batchWeek = (wd.batch ?? "auto") === "auto" ? batchAuto : wd.batch === "batch";
+  const setMode = (field, v) => upd(w => ({
+    ...w,
+    [field]: v
+  }));
+  const todayIdx = (() => {
+    const t = new Date();
+    if (isoDate(mondayOf(t)) !== key) return -1;
+    return (t.getDay() + 6) % 7;
+  })();
+  const placed = wd.placed;
+  const total = placed.length;
+  const doneCount = placed.filter(p => p.done).length;
+  const placedMins = placed.reduce((a, p) => a + p.mins, 0);
+  const doneMins = placed.filter(p => p.done).reduce((a, p) => a + p.mins, 0);
+  // Progress is hour-based: 1 hour checked off = 1 point. Sleep is credited
+  // in the background at the person's average (sleep x 7 nights), so the
+  // sleep setting individualizes the math without any per-night logging.
+  const doneHours = doneMins / 60;
+  const sleepCredit = cfg.sleep * 7;
+  const pts = Math.round((doneHours + sleepCredit) * 10) / 10;
+  const pct = Math.min(100, Math.round(pts / WEEK_HOURS * 100));
+  const frac = w => {
+    if (!w || w.placed.length === 0) return 0;
+    const t = w.placed.reduce((a, p) => a + p.mins, 0);
+    if (!t) return 0;
+    return w.placed.filter(p => p.done).reduce((a, p) => a + p.mins, 0) / t;
+  };
+  let streak = 0;
+  for (let i = 1; i <= 52; i++) {
+    const d = new Date(anchor);
+    d.setDate(d.getDate() - 7 * i);
+    const stored = weeks[isoDate(d)];
+    if (stored && frac(normWeek(stored)) >= 0.75) streak++;else break;
+  }
+  const defOf = blockId => cfg.palette.find(b => b.id === blockId) ?? SUGGEST_DEFS[blockId] ?? {
+    id: blockId,
+    label: "Block",
+    zone: "noon",
+    mins: 60
+  };
+  const suggestions = [...SUGGEST_WEEKLY, ...(videoWeek ? [EXTRA_BY.video] : []), ...(batchWeek ? [EXTRA_BY.batch] : []), ...(firstWeek ? [EXTRA_BY.accounting, EXTRA_BY.newsletter] : [])].filter(s => !placed.some(p => p.blockId === s.id));
+  const addPlaced = (blockId, day, mins) => upd(w => ({
+    ...w,
+    placed: [...w.placed, {
+      uid: genId("p"),
+      blockId,
+      day,
+      mins,
+      done: false
+    }]
+  }));
+  const movePlaced = (uid, day) => upd(w => ({
+    ...w,
+    placed: w.placed.map(p => p.uid === uid ? {
+      ...p,
+      day
+    } : p)
+  }));
+  // Move a placed block to a day AND slot it before beforeUid (or at the end of that day's blocks).
+  const reorderPlaced = (uid, day, beforeUid) => upd(w => {
+    const items = [...w.placed];
+    const from = items.findIndex(p => p.uid === uid);
+    if (from < 0 || beforeUid === uid) return w;
+    const sp = items.splice(from, 1);
+    if (sp.length === 0) return w;
+    const it = {
+      ...sp[0],
+      day
+    };
+    let insertAt = items.length;
+    if (beforeUid) {
+      const idx = items.findIndex(p => p.uid === beforeUid);
+      if (idx >= 0) insertAt = idx;
+    } else {
+      let lastIdx = -1;
+      for (let i = 0; i < items.length; i++) if (items[i].day === day) lastIdx = i;
+      insertAt = lastIdx >= 0 ? lastIdx + 1 : items.length;
+    }
+    items.splice(insertAt, 0, it);
+    return {
+      ...w,
+      placed: items
+    };
+  });
+  const removePlaced = uid => upd(w => ({
+    ...w,
+    placed: w.placed.filter(p => p.uid !== uid)
+  }));
+  const togglePlaced = uid => upd(w => ({
+    ...w,
+    placed: w.placed.map(p => p.uid === uid ? {
+      ...p,
+      done: !p.done
+    } : p)
+  }));
+  const setPlacedMins = (uid, mins) => upd(w => ({
+    ...w,
+    placed: w.placed.map(p => p.uid === uid ? {
+      ...p,
+      mins
+    } : p)
+  }));
+  const addNote = () => {
+    const t = noteText.trim();
+    if (!t) return;
+    upd(w => ({
+      ...w,
+      items: [...w.items, {
+        id: genId("n"),
+        text: t
+      }]
+    }));
+    setNoteText("");
+  };
+  const setNote = (id, text) => text.trim() ? upd(w => ({
+    ...w,
+    items: w.items.map(n => n.id === id ? {
+      ...n,
+      text: text.trim()
+    } : n)
+  })) : upd(w => ({
+    ...w,
+    items: w.items.filter(n => n.id !== id)
+  }));
+  const removeNote = id => upd(w => ({
+    ...w,
+    items: w.items.filter(n => n.id !== id)
+  }));
+  const beginNoteDrag = (e, id) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setNoteDrag({
+      id,
+      y: e.clientY,
+      over: -1
+    });
+  };
+  const noteMove = e => {
+    if (!noteDrag) return;
+    let over = -1;
+    for (let i = 0; i < wd.items.length; i++) {
+      const el = noteRefs.current[i];
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (e.clientY >= r.top && e.clientY <= r.bottom) {
+        over = i;
+        break;
+      }
+    }
+    if (over === -1 && noteRefs.current[0]) {
+      const r = noteRefs.current[0].getBoundingClientRect();
+      if (e.clientY < r.top) over = 0;
+    }
+    if (over === -1 && noteRefs.current[wd.items.length - 1]) {
+      const r = noteRefs.current[wd.items.length - 1].getBoundingClientRect();
+      if (e.clientY > r.bottom) over = wd.items.length - 1;
+    }
+    setNoteDrag({
+      ...noteDrag,
+      y: e.clientY,
+      over
+    });
+  };
+  const noteUp = () => {
+    if (!noteDrag) return;
+    const from = wd.items.findIndex(n => n.id === noteDrag.id);
+    const to = noteDrag.over;
+    if (from >= 0 && to >= 0 && to !== from) {
+      upd(w => {
+        const items = [...w.items];
+        const sp = items.splice(from, 1);
+        if (sp.length > 0) items.splice(to, 0, sp[0]);
+        return {
+          ...w,
+          items
+        };
+      });
+    }
+    setNoteDrag(null);
+  };
+  const hitTarget = (x, y) => {
+    try {
+      for (let i = 0; i < 7; i++) {
+        const el = dayRefs.current[i];
+        if (el) {
+          const r = el.getBoundingClientRect();
+          if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return "day-" + i;
+        }
+      }
+      const tr = trayRef.current;
+      if (tr) {
+        const r = tr.getBoundingClientRect();
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return "tray";
+      }
+      const pa = paletteRef.current;
+      if (pa) {
+        const r = pa.getBoundingClientRect();
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return "palette";
+      }
+    } catch (e) {}
+    return null;
+  };
+
+  // Which placed block in dayIdx is the pointer over? Returns the uid to insert BEFORE, or null for append.
+  const hitBlock = (y, dayIdx, excludeUid) => {
+    try {
+      const blocks = placed.filter(p => p.day === dayIdx && p.uid !== excludeUid);
+      for (const b of blocks) {
+        const el = blockRefs.current[b.uid];
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        if (y >= r.top && y <= r.bottom) return b.uid;
+      }
+      if (blocks.length > 0) {
+        const el = blockRefs.current[blocks[0].uid];
+        if (el) {
+          const r = el.getBoundingClientRect();
+          if (y < r.top) return blocks[0].uid;
+        }
+      }
+    } catch (e) {}
+    return null;
+  };
+  const beginChipDrag = (e, source, blockId, label, zone, mins) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDrag({
+      mode: "move",
+      source,
+      blockId,
+      label,
+      zone,
+      mins,
+      x: e.clientX,
+      y: e.clientY,
+      startX: e.clientX,
+      startY: e.clientY,
+      moved: false,
+      hover: null
+    });
+  };
+  const beginBlockDrag = (e, p) => {
+    const def = defOf(p.blockId);
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDrag({
+      mode: "move",
+      source: p.day === -1 ? "tray" : "day",
+      blockId: p.blockId,
+      uid: p.uid,
+      label: def.label,
+      zone: def.zone,
+      mins: p.mins,
+      x: e.clientX,
+      y: e.clientY,
+      startX: e.clientX,
+      startY: e.clientY,
+      moved: false,
+      hover: null
+    });
+  };
+  const beginResize = (e, p) => {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDrag({
+      mode: "resize",
+      source: "day",
+      blockId: p.blockId,
+      uid: p.uid,
+      label: defOf(p.blockId).label,
+      zone: defOf(p.blockId).zone,
+      mins: p.mins,
+      resizeMins: p.mins,
+      x: e.clientX,
+      y: e.clientY,
+      startX: e.clientY,
+      startY: e.clientY,
+      moved: true,
+      hover: null
+    });
+  };
+  const handleMove = e => {
+    if (!drag) return;
+    if (drag.mode === "resize") {
+      const mins = Math.min(720, Math.max(15, drag.mins + Math.round((drag.startY - e.clientY) / 7) * 15));
+      setDrag({
+        ...drag,
+        y: e.clientY,
+        resizeMins: mins
+      });
+      return;
+    }
+    const moved = drag.moved || Math.abs(e.clientX - drag.startX) > 6 || Math.abs(e.clientY - drag.startY) > 6;
+    const hover = moved ? hitTarget(e.clientX, e.clientY) : null;
+    let overUid = null;
+    if (moved && hover && hover.startsWith("day-")) overUid = hitBlock(e.clientY, parseInt(hover.slice(4), 10), drag.uid);
+    setDrag({
+      ...drag,
+      x: e.clientX,
+      y: e.clientY,
+      moved,
+      hover,
+      overUid
+    });
+  };
+  const handleUp = e => {
+    if (!drag) return;
+    const d = drag;
+    setDrag(null);
+    const x = e.type === "lostpointercapture" ? d.x : e.clientX;
+    const y = e.type === "lostpointercapture" ? d.y : e.clientY;
+    if (d.mode === "resize") {
+      if (d.uid && d.resizeMins !== undefined) setPlacedMins(d.uid, d.resizeMins);
+      return;
+    }
+    if (!d.moved) {
+      if ((d.source === "day" || d.source === "tray") && d.uid) togglePlaced(d.uid);else if (d.source === "sugg") addPlaced(d.blockId, -1, d.mins);else if (d.source === "palette") addPlaced(d.blockId, todayIdx >= 0 ? todayIdx : 0, d.mins);
+      return;
+    }
+    const target = hitTarget(x, y);
+    if (!target) return;
+    if (target === "palette") {
+      if ((d.source === "day" || d.source === "tray") && d.uid) removePlaced(d.uid);
+      return;
+    }
+    const day = target === "tray" ? -1 : parseInt(target.slice(4), 10);
+    if ((d.source === "day" || d.source === "tray") && d.uid) {
+      if (day >= 0) reorderPlaced(d.uid, day, hitBlock(y, day, d.uid));else movePlaced(d.uid, -1);
+    } else addPlaced(d.blockId, day, d.mins);
+  };
+  const T = {
+    page: theme === "light" ? "bg-[#FFFDF8] text-[#1E1E1E]" : "bg-[#141312] text-[#F5F3EF]",
+    card: theme === "light" ? "bg-white border-stone-200" : "bg-[#1D1C1A] border-[#2A2825]",
+    sub: theme === "light" ? "text-stone-500" : "text-[#A8A29A]",
+    faint: theme === "light" ? "text-stone-400" : "text-[#6B6660]",
+    track: theme === "light" ? "bg-[#EFE9DD]" : "bg-[#2A2825]",
+    input: theme === "light" ? "bg-stone-50 border-stone-300 text-stone-800 placeholder:text-stone-400" : "bg-[#141312] border-[#3A3733] text-[#F5F3EF] placeholder:text-[#6B6660]",
+    zoneBorder: {
+      light: {
+        am: "#659EB3",
+        noon: "#A8A29A",
+        pm: "#7CA621",
+        eve: "#D85F4F",
+        night: "#141312",
+        open: "#78716C"
+      },
+      dark: {
+        am: "#8FBFCC",
+        noon: "#A8A29A",
+        pm: "#9CC45E",
+        eve: "#E8837A",
+        night: "#6B6660",
+        open: "#8E8880"
+      }
+    }
+  };
+  const zoneColor = z => T.zoneBorder[theme][z];
+  const zoneText = z => z === "am" ? theme === "light" ? "text-[#41718A]" : "text-[#8FBFCC]" : z === "pm" ? theme === "light" ? "text-[#5C7D18]" : "text-[#9CC45E]" : z === "eve" ? theme === "light" ? "text-[#C14F40]" : "text-[#E8837A]" : z === "night" ? theme === "light" ? "text-[#141312]" : "text-[#6B6660]" : z === "open" ? theme === "light" ? "text-[#78716C]" : "text-[#8E8880]" : T.sub;
+
+  // Custom block color wins; the zone color is the default.
+  const blockColor = b => b.color ?? zoneColor(b.zone);
+  const Seg = ({
+    options,
+    value,
+    onChange
+  }) => /*#__PURE__*/React.createElement("div", {
+    className: "inline-flex items-center rounded-full border p-0.5 " + T.card
+  }, options.map(o => /*#__PURE__*/React.createElement("button", {
+    key: o.v,
+    onClick: () => onChange(o.v),
+    className: "rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors " + (value === o.v ? theme === "light" ? "bg-[#7CA621] text-white" : "bg-[#9CC45E] text-[#141312]" : T.sub)
+  }, o.label)));
+  const fmtDur = m => {
+    const h = Math.floor(m / 60);
+    const r = m % 60;
+    if (h === 0) return r + "m";
+    if (r === 0) return h + "h";
+    return h + "h" + r + "m";
+  };
+  const fmtPts = v => v % 1 === 0 ? String(v) : v.toFixed(1);
+  const bumpSleep = d => setCfg(c => ({
+    ...c,
+    sleep: Math.min(10, Math.max(4, Math.round((c.sleep + d) * 2) / 2))
+  }));
+  const commitName = () => {
+    const v = stripPoss(nameDraft).slice(0, 24);
+    if (v.length > 0) setCfg(c => ({
+      ...c,
+      name: v
+    }));
+    setNameEdit(false);
+  };
+  const addSuggNew = () => {
+    const label = suggNewLabel.trim();
+    if (!label) return;
+    const mins = parseLen(suggNewLen);
+    const id = genId("b");
+    setCfg(c => ({
+      ...c,
+      palette: [...c.palette, {
+        id,
+        label,
+        zone: "open",
+        mins
+      }]
+    }));
+    addPlaced(id, -1, mins);
+    setSuggNewLabel("");
+    setSuggNewLen("");
+    setSuggNewOpen(false);
+  };
+  const shareText = () => {
+    const lines = ["My week: " + fmtPts(pts) + " of " + WEEK_HOURS + " h (" + pct + "%)"];
+    if (shareSel.stats) lines.push(doneCount + " of " + total + " blocks · " + fmtDur(doneMins) + " of " + fmtDur(placedMins) + " planned · " + fmtPts(doneHours) + " h checked off");
+    if (shareSel.streak && streak > 0) lines.push("🔥 " + streak + " week streak");
+    if (shareSel.priorities) wd.items.slice(0, 3).forEach((n, i) => lines.push(String(i + 1) + ". " + n.text));
+    if (shareSel.brand) lines.push("Made with Jojo Creative Tech");
+    return lines.join("\n");
+  };
+  const downloadShare = () => {
+    try {
+      const F = "'Montserrat', ui-sans-serif, system-ui, sans-serif";
+      const body = [];
+      if (shareSel.stats) body.push({
+        t: doneCount + " of " + total + " blocks shipped · " + fmtPts(doneHours) + " h checked off · " + fmtPts(pts) + " of " + WEEK_HOURS + " h",
+        color: "#57534E",
+        size: 13,
+        weight: "500"
+      });
+      if (shareSel.streak && streak > 0) body.push({
+        t: streak + " week streak",
+        color: "#1E1E1E",
+        size: 14,
+        weight: "600"
+      });
+      if (shareSel.priorities) wd.items.slice(0, 3).forEach((n, i) => body.push({
+        t: String(i + 1) + ". " + n.text,
+        color: "#1E1E1E",
+        size: 14,
+        weight: "500"
+      }));
+      const W = 600;
+      const TOP = 208;
+      const LINE = 28;
+      const H = TOP + body.length * LINE + (shareSel.brand ? 56 : 32);
+      const c = document.createElement("canvas");
+      c.width = W * 2;
+      c.height = H * 2;
+      const g = c.getContext("2d");
+      if (!g) return;
+      g.scale(2, 2);
+      g.fillStyle = "#FFFDF8";
+      g.fillRect(0, 0, W, H);
+      g.fillStyle = "#5C7D18";
+      g.font = "600 11px " + F;
+      g.fillText("JOJO CREATIVE TECH", 32, 42);
+      g.fillStyle = "#1E1E1E";
+      g.font = "700 22px " + F;
+      g.fillText("This week's progress", 32, 74);
+      g.font = "700 64px " + F;
+      g.fillStyle = "#5C7D18";
+      g.fillText(String(pct) + "%", 32, 140);
+      g.fillStyle = "#EFE9DD";
+      g.fillRect(32, 158, W - 64, 14);
+      if (pct > 0) {
+        g.fillStyle = "#7CA621";
+        g.fillRect(32, 158, Math.max(14, (W - 64) * pct / 100), 14);
+      }
+      let y = TOP;
+      for (const b of body) {
+        g.fillStyle = b.color;
+        g.font = b.weight + " " + b.size + "px " + F;
+        g.fillText(b.t, 32, y);
+        y += LINE;
+      }
+      if (shareSel.brand) {
+        g.fillStyle = "#A8A29A";
+        g.font = "500 11px " + F;
+        g.fillText("Made with Jojo Creative Tech", 32, H - 24);
+      }
+      const a = document.createElement("a");
+      a.href = c.toDataURL("image/png");
+      a.download = "weekly-progress-" + key + ".png";
+      a.click();
+    } catch (e) {}
+  };
+  const copyShare = async () => {
+    try {
+      await navigator.clipboard.writeText(shareText());
+      setShareCopied("copied");
+    } catch (e) {
+      setShareCopied("");
+    }
+  };
+  const exportIcs = () => {
+    try {
+      const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Jojo Creative Tech//Weekly Time Budget//EN", "CALSCALE:GREGORIAN"];
+      const byDay = {};
+      for (const p of placed) {
+        if (p.day >= 0) {
+          const list = byDay[p.day] ?? [];
+          list.push(p);
+          byDay[p.day] = list;
+        }
+      }
+      for (let i = 0; i < 7; i++) {
+        const blocks = byDay[i] ?? [];
+        const cursor = {};
+        for (const p of blocks) {
+          const def = defOf(p.blockId);
+          let st = cursor[def.zone];
+          if (!st) {
+            st = new Date(dates[i]);
+            st.setHours(ZONE_CAL_START[def.zone], 0, 0, 0);
+            cursor[def.zone] = st;
+          }
+          const start = new Date(st);
+          const end = new Date(start.getTime() + p.mins * 60000);
+          cursor[def.zone] = end;
+          lines.push("BEGIN:VEVENT");
+          lines.push("UID:" + p.uid + "-" + key + "@jjct-routine");
+          lines.push("DTSTAMP:" + icsStamp(new Date()));
+          lines.push("DTSTART:" + icsStamp(start));
+          lines.push("DTEND:" + icsStamp(end));
+          lines.push("SUMMARY:" + escIcs(def.label));
+          lines.push("DESCRIPTION:" + escIcs("From " + poss(cfg.name) + " Weekly Time Budget · " + fmtDur(p.mins)));
+          lines.push("END:VEVENT");
+        }
+      }
+      lines.push("END:VCALENDAR");
+      const blob = new Blob([lines.join("\r\n")], {
+        type: "text/calendar"
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "weekly-routine-" + key + ".ics";
+      a.click();
+    } catch (e) {}
+  };
+  const weekLabel = "Week of " + anchor.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric"
+  });
+  const dragging = drag && drag.moved && drag.mode === "move";
+  return /*#__PURE__*/React.createElement("div", {
+    className: "min-h-screen p-4 transition-colors sm:p-6 " + T.page,
+    style: {
+      fontFamily: "'Montserrat', ui-sans-serif, system-ui, sans-serif"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "mx-auto max-w-5xl space-y-5"
+  }, /*#__PURE__*/React.createElement("header", {
+    className: "flex flex-wrap items-center justify-between gap-3"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
+    className: "text-xs font-semibold uppercase tracking-[0.2em] " + (theme === "light" ? "text-[#5C7D18]" : "text-[#9CC45E]")
+  }, "Jojo Creative Tech"), /*#__PURE__*/React.createElement("h1", {
+    className: "text-2xl font-bold tracking-tight"
+  }, nameEdit ? /*#__PURE__*/React.createElement("input", {
+    autoFocus: true,
+    value: nameDraft,
+    onChange: e => setNameDraft(e.target.value),
+    onBlur: commitName,
+    onKeyDown: e => {
+      if (e.key === "Enter") commitName();
+      if (e.key === "Escape") setNameEdit(false);
+    },
+    className: "w-44 rounded-md border-b-2 border-[#7CA621] bg-transparent px-1 outline-none",
+    maxLength: 24,
+    title: "Type a name, then press Enter"
+  }) : /*#__PURE__*/React.createElement("span", {
+    onClick: () => {
+      setNameDraft(cfg.name);
+      setNameEdit(true);
+    },
+    className: "cursor-pointer underline decoration-dotted decoration-1 underline-offset-4 hover:text-[#7CA621]",
+    title: "Click to put your name here"
+  }, poss(cfg.name)), " Weekly Time Budget"), /*#__PURE__*/React.createElement("p", {
+    className: "text-sm " + T.sub
+  }, "Drag your week together, block by block")), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      const d = new Date(anchor);
+      d.setDate(d.getDate() - 7);
+      setAnchor(d);
+    },
+    className: "rounded-lg border px-3 py-1.5 text-sm " + T.card
+  }, "\u2190"), /*#__PURE__*/React.createElement("span", {
+    className: "text-sm font-medium"
+  }, weekLabel), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      const d = new Date(anchor);
+      d.setDate(d.getDate() + 7);
+      setAnchor(d);
+    },
+    className: "rounded-lg border px-3 py-1.5 text-sm " + T.card
+  }, "\u2192"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setAnchor(mondayOf(new Date())),
+    className: "rounded-lg border px-3 py-1.5 text-xs " + T.card
+  }, "Today"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setTheme(theme === "light" ? "dark" : "light"),
+    className: "rounded-full border px-3 py-1.5 text-sm " + T.card,
+    title: "Toggle light / dark"
+  }, theme === "light" ? "🌙" : "☀️"))), /*#__PURE__*/React.createElement("div", {
+    className: "rounded-2xl border p-5 shadow-sm " + T.card
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap items-center justify-between gap-3"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm font-semibold"
+  }, "This week's Progress Bar"), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs " + T.sub
+  }, doneCount, " of ", total, " blocks shipped", placedMins > 0 ? /*#__PURE__*/React.createElement("span", {
+    className: "opacity-60"
+  }, " \xB7 ", fmtDur(doneMins), " done of ", fmtDur(placedMins), " placed") : null)), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap items-center gap-3"
+  }, streak > 0 ? /*#__PURE__*/React.createElement("span", {
+    className: "rounded-full px-3 py-1 text-sm font-medium " + (theme === "light" ? "bg-[#7CA621]/10 text-[#5C7D18]" : "bg-[#7CA621]/15 text-[#9CC45E]")
+  }, "\uD83D\uDD25 ", streak, " week streak") : null, /*#__PURE__*/React.createElement("div", {
+    className: "text-3xl font-bold tabular-nums " + (theme === "light" ? "text-[#5C7D18]" : "text-[#9CC45E]")
+  }, pct, "%"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setShareOpen(!shareOpen);
+      setShareCopied("");
+    },
+    className: "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors " + T.card + " hover:border-[#7CA621]",
+    title: "Share your progress: image for Discord, or text"
+  }, "Share"), /*#__PURE__*/React.createElement("button", {
+    onClick: exportIcs,
+    className: "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors " + T.card + " hover:border-[#7CA621]",
+    title: "Download an .ics file: import your week into Google Calendar, Outlook, or Apple Calendar"
+  }, "Add to calendar"))), /*#__PURE__*/React.createElement("div", {
+    className: "mt-3 h-3 overflow-hidden rounded-full " + T.track
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "h-3 rounded-full bg-[#7CA621] transition-all duration-300",
+    style: {
+      width: pct + "%"
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "mt-2 flex flex-wrap items-center justify-between gap-2"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-[11px] " + T.sub
+  }, fmtPts(pts), " of ", WEEK_HOURS, " h \xB7 1 h checked off = 1 point \xB7 sleep counts at your average (+", fmtPts(sleepCredit), " h)"), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-1.5"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[11px] " + T.sub
+  }, "Avg sleep / night"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => bumpSleep(-0.5),
+    className: "flex h-5 w-5 items-center justify-center rounded-full border text-xs " + T.card + " " + T.sub + " hover:border-[#7CA621]",
+    title: "Less sleep"
+  }, "\u2013"), /*#__PURE__*/React.createElement("span", {
+    className: "text-xs font-semibold tabular-nums " + (theme === "light" ? "text-[#1E1E1E]" : "text-[#F5F3EF]")
+  }, cfg.sleep, " h"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => bumpSleep(0.5),
+    className: "flex h-5 w-5 items-center justify-center rounded-full border text-xs " + T.card + " " + T.sub + " hover:border-[#7CA621]",
+    title: "More sleep"
+  }, "+"))), shareOpen ? /*#__PURE__*/React.createElement("div", {
+    className: "mt-4 rounded-xl border p-3 " + (theme === "light" ? "bg-stone-50 border-stone-200" : "bg-[#141312] border-[#2A2825]")
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap items-center gap-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-xs font-medium " + T.sub
+  }, "Include:"), SHARE_TOGGLES.map(tg => /*#__PURE__*/React.createElement("button", {
+    key: tg.k,
+    onClick: () => setShareSel(s => {
+      const n = {
+        ...s
+      };
+      n[tg.k] = !n[tg.k];
+      return n;
+    }),
+    className: "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors " + (shareSel[tg.k] ? theme === "light" ? "bg-[#7CA621] border-transparent text-white" : "bg-[#9CC45E] border-transparent text-[#141312]" : T.card + " " + T.sub)
+  }, shareSel[tg.k] ? "✓ " : "", tg.label))), /*#__PURE__*/React.createElement("div", {
+    className: "mt-3 flex flex-wrap items-center gap-2"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: downloadShare,
+    className: "rounded-full bg-[#7CA621] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#63851A]"
+  }, "Download image"), /*#__PURE__*/React.createElement("button", {
+    onClick: copyShare,
+    className: "rounded-full border px-3 py-1.5 text-xs font-medium " + T.card
+  }, shareCopied === "copied" ? "Copied ✓" : "Copy text"), /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] " + T.faint
+  }, "Drop the image or paste the text straight into Discord")), /*#__PURE__*/React.createElement("textarea", {
+    readOnly: true,
+    value: shareText(),
+    onFocus: e => e.target.select(),
+    className: "mt-2 w-full rounded-lg border p-2 font-mono text-[11px] " + T.input,
+    rows: 5
+  })) : null), /*#__PURE__*/React.createElement("div", {
+    className: "rounded-2xl border p-5 shadow-sm " + T.card
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap items-center justify-between gap-2"
+  }, /*#__PURE__*/React.createElement("h2", {
+    className: "text-sm font-semibold tracking-wide uppercase"
+  }, "Build your week"), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap items-center gap-x-4 gap-y-2"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-xs font-medium " + T.sub
+  }, "Video week?"), /*#__PURE__*/React.createElement(Seg, {
+    options: [{
+      v: "auto",
+      label: videoAuto ? "Auto: Video" : "Auto: Off"
+    }, {
+      v: "video",
+      label: "Video"
+    }, {
+      v: "off",
+      label: "Off"
+    }],
+    value: wd.video ?? "auto",
+    onChange: v => setMode("video", v)
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-xs font-medium " + T.sub
+  }, "Batch week?"), /*#__PURE__*/React.createElement(Seg, {
+    options: [{
+      v: "auto",
+      label: batchAuto ? "Auto: Batching" : "Auto: Normal"
+    }, {
+      v: "batch",
+      label: "Batching"
+    }, {
+      v: "off",
+      label: "Normal"
+    }],
+    value: wd.batch ?? "auto",
+    onChange: v => setMode("batch", v)
+  })))), /*#__PURE__*/React.createElement("div", {
+    className: "mt-3 flex flex-wrap items-center gap-2"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-xs font-medium " + T.sub
+  }, "Suggested for this week:"), suggestions.map(s => /*#__PURE__*/React.createElement("button", {
+    key: s.id,
+    onPointerDown: e => beginChipDrag(e, "sugg", s.id, s.label, "pm", s.mins),
+    onPointerMove: handleMove,
+    onPointerUp: handleUp,
+    onLostPointerCapture: handleUp,
+    title: "Drag into a day or the tray \xB7 click to drop it in the tray",
+    className: "flex cursor-grab touch-none items-center gap-1.5 rounded-full border border-dashed px-2.5 py-1 text-xs font-medium transition-colors",
+    style: {
+      borderColor: theme === "light" ? "#7CA621" : "#9CC45E",
+      color: theme === "light" ? "#5C7D18" : "#9CC45E"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px]"
+  }, "+"), s.label, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] tabular-nums opacity-60"
+  }, fmtDur(s.mins)))), suggNewOpen ? /*#__PURE__*/React.createElement("span", {
+    className: "flex items-center gap-1"
+  }, /*#__PURE__*/React.createElement("input", {
+    autoFocus: true,
+    value: suggNewLabel,
+    onChange: e => setSuggNewLabel(e.target.value),
+    onKeyDown: e => {
+      if (e.key === "Enter") addSuggNew();
+    },
+    placeholder: "Your task",
+    className: "w-40 rounded-full border border-dashed px-2.5 py-1 text-xs " + T.input
+  }), /*#__PURE__*/React.createElement("input", {
+    value: suggNewLen,
+    onChange: e => setSuggNewLen(e.target.value),
+    onKeyDown: e => {
+      if (e.key === "Enter") addSuggNew();
+    },
+    placeholder: "90m",
+    className: "w-16 rounded-full border border-dashed px-2.5 py-1 text-xs " + T.input
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: addSuggNew,
+    className: "rounded-full px-2.5 py-1 text-xs font-medium " + (theme === "light" ? "bg-[#7CA621] text-white" : "bg-[#9CC45E] text-[#141312]")
+  }, "Add"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setSuggNewOpen(false);
+      setSuggNewLabel("");
+      setSuggNewLen("");
+    },
+    className: "px-1 text-xs " + T.faint,
+    title: "Cancel"
+  }, "\xD7")) : /*#__PURE__*/React.createElement("button", {
+    onClick: () => setSuggNewOpen(true),
+    className: "flex items-center gap-1.5 rounded-full border border-dashed px-2.5 py-1 text-xs font-medium transition-colors " + (theme === "light" ? "border-stone-300 text-stone-500 hover:border-[#7CA621] hover:text-[#5C7D18]" : "border-[#3A3733] text-[#A8A29A] hover:border-[#9CC45E] hover:text-[#9CC45E]"),
+    title: "Add your own: it joins the shelf and lands in this week's tray"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px]"
+  }, "+"), "New")), /*#__PURE__*/React.createElement("div", {
+    ref: paletteRef,
+    className: "mt-4 rounded-xl border border-dashed p-3 " + (dragging && drag?.hover === "palette" ? "border-red-400 bg-red-400/5" : theme === "light" ? "border-stone-300 bg-stone-50/50" : "border-[#3A3733] bg-[#141312]/40")
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap gap-2"
+  }, cfg.palette.map(b => /*#__PURE__*/React.createElement("div", {
+    key: b.id,
+    className: "group relative flex items-center"
+  }, editChip === b.id ? /*#__PURE__*/React.createElement("div", {
+    className: "flex items-center gap-1"
+  }, /*#__PURE__*/React.createElement("input", {
+    autoFocus: true,
+    defaultValue: b.label,
+    onBlur: e => {
+      const v = e.target.value.trim();
+      if (v) setCfg(c => ({
+        ...c,
+        palette: c.palette.map(x => x.id === b.id ? {
+          ...x,
+          label: v
+        } : x)
+      }));
+      setEditChip(null);
+    },
+    onKeyDown: e => {
+      if (e.key === "Enter") e.target.blur();
+    },
+    className: "w-36 rounded-full border px-2.5 py-1 text-xs " + T.input
+  }), /*#__PURE__*/React.createElement("input", {
+    defaultValue: fmtDur(b.mins),
+    onBlur: e => {
+      const m = parseLen(e.target.value);
+      setCfg(c => ({
+        ...c,
+        palette: c.palette.map(x => x.id === b.id ? {
+          ...x,
+          mins: m
+        } : x)
+      }));
+    },
+    onKeyDown: e => {
+      if (e.key === "Enter") e.target.blur();
+    },
+    className: "w-16 rounded-full border px-2.5 py-1 text-xs " + T.input
+  }), /*#__PURE__*/React.createElement("input", {
+    type: "color",
+    defaultValue: b.color ?? zoneColor(b.zone),
+    onChange: e => setCfg(c => ({
+      ...c,
+      palette: c.palette.map(x => x.id === b.id ? {
+        ...x,
+        color: e.target.value
+      } : x)
+    })),
+    title: "Block color (custom overrides the " + ZONE_NAME[b.zone].toLowerCase() + " zone color)",
+    className: "h-6 w-8 cursor-pointer rounded-full border p-0.5 " + (theme === "light" ? "border-stone-300 bg-stone-50" : "border-[#3A3733] bg-[#141312]")
+  }), b.color ? /*#__PURE__*/React.createElement("button", {
+    onClick: () => setCfg(c => ({
+      ...c,
+      palette: c.palette.map(x => {
+        if (x.id !== b.id) return x;
+        const nx = {
+          ...x
+        };
+        delete nx.color;
+        return nx;
+      })
+    })),
+    className: "rounded-full px-1.5 py-0.5 text-[10px] " + T.sub + " hover:text-[#D85F4F]",
+    title: "Back to the zone color"
+  }, "\u21BA") : null) : /*#__PURE__*/React.createElement("button", {
+    onPointerDown: e => beginChipDrag(e, "palette", b.id, b.label, b.zone, b.mins),
+    onPointerMove: handleMove,
+    onPointerUp: handleUp,
+    onLostPointerCapture: handleUp,
+    title: "Drag into a day \xB7 click to drop it in today \xB7 drag back here to remove a placed block",
+    className: "flex cursor-grab touch-none select-none items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors " + T.card + " hover:border-[#7CA621]",
+    style: {
+      color: theme === "light" ? "#1E1E1E" : "#F5F3EF"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onPointerDown: e => e.stopPropagation(),
+    onClick: () => setCfg(c => ({
+      ...c,
+      palette: c.palette.map(x => x.id === b.id ? {
+        ...x,
+        zone: ZONE_ORDER[(ZONE_ORDER.indexOf(x.zone) + 1) % ZONE_ORDER.length]
+      } : x)
+    })),
+    className: "h-2 w-2 shrink-0 rounded-full",
+    style: {
+      backgroundColor: blockColor(b)
+    },
+    title: "Time of day: " + ZONE_NAME[b.zone] + " (click to change)"
+  }), b.label, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] tabular-nums " + T.faint
+  }, fmtDur(b.mins))), /*#__PURE__*/React.createElement("button", {
+    onPointerDown: e => e.stopPropagation(),
+    onClick: () => setCfg(c => ({
+      ...c,
+      palette: c.palette.filter(x => x.id !== b.id)
+    })),
+    className: "absolute -top-1.5 -right-1.5 hidden h-4 w-4 items-center justify-center rounded-full bg-stone-600 text-[9px] text-white group-hover:flex",
+    title: "Delete this block from the palette"
+  }, "\xD7"), /*#__PURE__*/React.createElement("button", {
+    onPointerDown: e => e.stopPropagation(),
+    onClick: () => setEditChip(b.id),
+    className: "absolute -top-1.5 right-4 hidden h-4 w-4 items-center justify-center rounded-full bg-stone-600 text-[9px] text-white group-hover:flex",
+    title: "Rename or retime"
+  }, "\u270E")))), /*#__PURE__*/React.createElement("div", {
+    className: "mt-3 flex flex-wrap items-center gap-2"
+  }, /*#__PURE__*/React.createElement("input", {
+    value: newLabel,
+    onChange: e => setNewLabel(e.target.value),
+    placeholder: "New block (e.g. Side project)",
+    className: "w-52 rounded-full border px-3 py-1.5 text-xs " + T.input
+  }), /*#__PURE__*/React.createElement("input", {
+    value: newLen,
+    onChange: e => setNewLen(e.target.value),
+    placeholder: "Length (90m or 1h30)",
+    className: "w-40 rounded-full border px-3 py-1.5 text-xs " + T.input
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      if (!newLabel.trim()) return;
+      setCfg(c => ({
+        ...c,
+        palette: [...c.palette, {
+          id: genId("b"),
+          label: newLabel.trim(),
+          zone: "open",
+          mins: parseLen(newLen)
+        }]
+      }));
+      setNewLabel("");
+      setNewLen("");
+    },
+    className: "rounded-full bg-[#7CA621] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#63851A]"
+  }, "Add block"), /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] " + T.faint
+  }, "Drag a placed block back into this shelf to remove it from the week.")))), /*#__PURE__*/React.createElement("div", {
+    className: "overflow-x-auto"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "grid min-w-[840px] gap-2",
+    style: {
+      gridTemplateColumns: "repeat(7, minmax(0, 1fr))"
+    }
+  }, DAYS.map((day, i) => {
+    const dayBlocks = placed.filter(p => p.day === i);
+    const dMins = dayBlocks.reduce((a, p) => a + p.mins, 0);
+    const dDoneMins = dayBlocks.filter(p => p.done).reduce((a, p) => a + p.mins, 0);
+    const dPct = dMins ? Math.round(dDoneMins / dMins * 100) : 0;
+    const isHover = dragging && drag?.hover === "day-" + i;
+    return /*#__PURE__*/React.createElement("div", {
+      key: day,
+      className: "rounded-2xl border p-2 " + T.card + " " + (i === todayIdx ? "ring-1 ring-[#659EB3]" : "")
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "px-1 pb-2"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-baseline justify-between text-xs font-semibold " + (i === todayIdx ? "text-[#659EB3]" : "")
+    }, /*#__PURE__*/React.createElement("span", null, day), /*#__PURE__*/React.createElement("span", {
+      className: "opacity-60"
+    }, dates[i].getDate())), /*#__PURE__*/React.createElement("div", {
+      className: "mt-1 h-1 overflow-hidden rounded-full " + T.track
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "h-1 rounded-full bg-[#7CA621] transition-all duration-300",
+      style: {
+        width: dPct + "%"
+      }
+    }))), /*#__PURE__*/React.createElement("div", {
+      ref: el => {
+        dayRefs.current[i] = el;
+      },
+      className: "flex min-h-[300px] flex-col gap-1.5 rounded-xl border border-dashed p-1.5 transition-colors " + (isHover ? "border-[#7CA621] bg-[#7CA621]/5" : theme === "light" ? "border-stone-200" : "border-[#2A2825]")
+    }, dayBlocks.length === 0 ? /*#__PURE__*/React.createElement("span", {
+      className: "m-auto text-[10px] " + T.faint
+    }, "drag blocks here") : null, dayBlocks.map(p => {
+      const def = defOf(p.blockId);
+      const mins = drag?.mode === "resize" && drag.uid === p.uid ? drag.resizeMins ?? p.mins : p.mins;
+      const h = Math.max(38, Math.round(mins * 0.45));
+      const isDrag = drag?.mode === "move" && drag.moved && drag.uid === p.uid;
+      return /*#__PURE__*/React.createElement("div", {
+        key: p.uid,
+        ref: el => {
+          blockRefs.current[p.uid] = el;
+        },
+        onPointerDown: e => beginBlockDrag(e, p),
+        onPointerMove: handleMove,
+        onPointerUp: handleUp,
+        onLostPointerCapture: handleUp,
+        title: "Click to check off \xB7 drag to another day \xB7 drag the bottom edge to resize",
+        className: "group relative cursor-grab touch-none select-none overflow-hidden rounded-xl border-l-4 px-2 py-1.5 transition-colors " + (p.done ? theme === "light" ? "bg-[#7CA621]/15" : "bg-[#9CC45E]/15" : theme === "light" ? "bg-stone-50" : "bg-[#141312]") + (isDrag ? " opacity-30" : ""),
+        style: {
+          height: h,
+          borderColor: p.done ? theme === "light" ? "#7CA621" : "#9CC45E" : blockColor(def)
+        }
+      }, drag?.mode === "move" && drag.moved && drag.overUid === p.uid && drag.uid !== p.uid ? /*#__PURE__*/React.createElement("div", {
+        className: "absolute inset-x-0 top-0 z-20 h-[3px] rounded-full bg-[#7CA621]"
+      }) : null, /*#__PURE__*/React.createElement("div", {
+        className: "flex items-start gap-1 text-[10px] leading-tight " + (p.done ? "font-semibold " + (theme === "light" ? "text-[#5C7D18]" : "text-[#9CC45E]") : zoneText(def.zone))
+      }, p.done ? /*#__PURE__*/React.createElement("span", null, "\u2713") : null, /*#__PURE__*/React.createElement("span", {
+        className: p.done ? "line-through opacity-70" : "font-medium"
+      }, def.label)), /*#__PURE__*/React.createElement("span", {
+        className: "absolute right-1.5 bottom-0.5 text-[9px] tabular-nums " + (drag?.mode === "resize" && drag.uid === p.uid ? "font-bold text-[#7CA621]" : T.faint)
+      }, fmtDur(mins)), /*#__PURE__*/React.createElement("button", {
+        onPointerDown: e => e.stopPropagation(),
+        onClick: () => removePlaced(p.uid),
+        className: "absolute top-0.5 right-0.5 hidden h-4 w-4 items-center justify-center rounded bg-stone-600/80 text-[9px] text-white group-hover:flex",
+        title: "Remove"
+      }, "\xD7"), /*#__PURE__*/React.createElement("div", {
+        onPointerDown: e => beginResize(e, p),
+        onPointerMove: handleMove,
+        onPointerUp: handleUp,
+        onLostPointerCapture: handleUp,
+        title: "Drag up or down: add or take away time",
+        className: "absolute bottom-0 left-0 h-2.5 w-full cursor-ns-resize"
+      }));
+    })));
+  }))), /*#__PURE__*/React.createElement("div", {
+    ref: trayRef,
+    className: "rounded-2xl border p-4 shadow-sm transition-colors " + T.card + " " + (dragging && drag?.hover === "tray" ? "border-[#7CA621] bg-[#7CA621]/5" : "")
+  }, /*#__PURE__*/React.createElement("h2", {
+    className: "text-sm font-semibold tracking-wide uppercase"
+  }, "This week \xB7 not tied to a day"), /*#__PURE__*/React.createElement("p", {
+    className: "mt-1 text-xs " + T.sub
+  }, "Week-scope work lives here: drag suggestion chips in, click to check off, drag into a day when it finds a home. Hover a chip and hit \xD7 to send it back where it came from."), /*#__PURE__*/React.createElement("div", {
+    className: "mt-3 flex min-h-[52px] flex-wrap gap-2"
+  }, placed.filter(p => p.day === -1).length === 0 ? /*#__PURE__*/React.createElement("span", {
+    className: "m-auto text-[10px] " + T.faint
+  }, "drag a suggestion here") : null, placed.filter(p => p.day === -1).map(p => {
+    const def = defOf(p.blockId);
+    const isDrag = drag?.mode === "move" && drag.moved && drag.uid === p.uid;
+    return /*#__PURE__*/React.createElement("div", {
+      key: p.uid,
+      className: "group relative"
+    }, /*#__PURE__*/React.createElement("button", {
+      onPointerDown: e => beginBlockDrag(e, p),
+      onPointerMove: handleMove,
+      onPointerUp: handleUp,
+      onLostPointerCapture: handleUp,
+      className: "flex cursor-grab touch-none select-none items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors " + (p.done ? "border-transparent " + (theme === "light" ? "bg-[#D85F4F] text-white" : "bg-[#E8837A] text-[#141312]") : T.card + (isDrag ? " opacity-30" : "")),
+      title: "Click to check off \xB7 drag into a day \xB7 \xD7 sends it back where it came from"
+    }, p.done ? /*#__PURE__*/React.createElement("span", null, "\u2713") : null, /*#__PURE__*/React.createElement("span", {
+      className: p.done ? "line-through opacity-80" : "font-medium"
+    }, def.label), /*#__PURE__*/React.createElement("span", {
+      className: "text-[10px] tabular-nums " + (p.done ? "opacity-70" : T.faint)
+    }, fmtDur(p.mins))), /*#__PURE__*/React.createElement("button", {
+      onPointerDown: e => e.stopPropagation(),
+      onClick: () => removePlaced(p.uid),
+      className: "absolute -top-1.5 -right-1.5 hidden h-4 w-4 items-center justify-center rounded-full bg-stone-600 text-[9px] text-white group-hover:flex",
+      title: "Remove: it goes back to the shelf or the suggestion row"
+    }, "\xD7"));
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "rounded-2xl border p-5 shadow-sm " + T.card
+  }, /*#__PURE__*/React.createElement("h2", {
+    className: "text-sm font-semibold tracking-wide uppercase"
+  }, "Priority notes"), /*#__PURE__*/React.createElement("p", {
+    className: "mt-1 text-xs " + T.sub
+  }, "Notes to yourself, ranked. Drag the \u21D5 to reorder: top of the list is top of mind. Clear the text and click away to delete."), /*#__PURE__*/React.createElement("div", {
+    className: "mt-3 space-y-1.5"
+  }, wd.items.length === 0 ? /*#__PURE__*/React.createElement("p", {
+    className: "text-[10px] " + T.faint
+  }, "Nothing yet. Add the first thing on your mind below.") : null, wd.items.map((n, i) => {
+    const lifted = noteDrag?.id === n.id;
+    const hovered = noteDrag && noteDrag.id !== n.id && noteDrag.over === i;
+    return /*#__PURE__*/React.createElement("div", {
+      key: n.id,
+      ref: el => {
+        noteRefs.current[i] = el;
+      },
+      className: "group flex items-center gap-2 rounded-xl border px-2 py-1.5 transition-colors " + T.card + (lifted ? " opacity-40" : "") + (hovered ? " border-[#7CA621]" : "")
+    }, /*#__PURE__*/React.createElement("button", {
+      onPointerDown: e => beginNoteDrag(e, n.id),
+      onPointerMove: noteMove,
+      onPointerUp: noteUp,
+      onLostPointerCapture: noteUp,
+      className: "cursor-grab touch-none select-none px-0.5 text-xs " + T.faint + (lifted ? " text-[#7CA621]" : ""),
+      title: "Drag to reorder"
+    }, "\u21D5"), /*#__PURE__*/React.createElement("span", {
+      className: "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold " + (i < 3 ? theme === "light" ? "bg-[#7CA621] text-white" : "bg-[#9CC45E] text-[#141312]" : theme === "light" ? "bg-[#EFE9DD] text-stone-500" : "bg-[#2A2825] text-[#A8A29A]"),
+      title: i < 3 ? "Top priority" : "Priority #" + (i + 1)
+    }, i + 1), /*#__PURE__*/React.createElement("input", {
+      defaultValue: n.text,
+      onBlur: e => setNote(n.id, e.target.value),
+      onKeyDown: e => {
+        if (e.key === "Enter") e.target.blur();
+      },
+      className: "min-w-0 flex-1 border-0 bg-transparent p-0 text-sm outline-none"
+    }), /*#__PURE__*/React.createElement("button", {
+      onClick: () => removeNote(n.id),
+      className: "hidden h-5 w-5 items-center justify-center rounded-full text-xs group-hover:flex " + T.faint + " hover:text-[#D85F4F]",
+      title: "Remove"
+    }, "\xD7"));
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "mt-3 flex items-center gap-2"
+  }, /*#__PURE__*/React.createElement("input", {
+    value: noteText,
+    onChange: e => setNoteText(e.target.value),
+    onKeyDown: e => {
+      if (e.key === "Enter") addNote();
+    },
+    placeholder: "Add a note to yourself (e.g. Protect Thursday morning for editing)",
+    className: "min-w-0 flex-1 rounded-full border px-3 py-1.5 text-xs " + T.input
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: addNote,
+    className: "rounded-full px-3 py-1.5 text-xs font-medium transition-colors " + (theme === "light" ? "bg-[#7CA621] text-white hover:bg-[#63851A]" : "bg-[#9CC45E] text-[#141312] hover:bg-[#7CA621] hover:text-white")
+  }, "Add note"))), /*#__PURE__*/React.createElement("footer", {
+    className: "pb-4 text-center text-xs " + T.sub
+  }, /*#__PURE__*/React.createElement("a", {
+    href: "https://www.patreon.com/cw/BloodSweatCreativeTech",
+    target: "_blank",
+    rel: "noopener noreferrer",
+    className: "mb-2 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 font-medium transition-colors hover:border-[#7CA621] " + T.card,
+    title: "Share your weeks and cheer each other on"
+  }, "\uD83D\uDD25 Want people to share weeks with and cheer you on? Join the $5 community"), /*#__PURE__*/React.createElement("br", null), "Saved locally, per week \xB7 the streak remembers \xB7 Made by Jojo Creative Tech")), dragging ? /*#__PURE__*/React.createElement("div", {
+    className: "pointer-events-none fixed z-50 flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-lg",
+    style: {
+      left: drag.x + 10,
+      top: drag.y + 10,
+      backgroundColor: theme === "light" ? "#7CA621" : "#9CC45E",
+      color: theme === "light" ? "#fff" : "#141312",
+      borderColor: "transparent"
+    }
+  }, drag.label, /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] opacity-80"
+  }, fmtDur(drag.mins))) : null);
+}
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(React.createElement(App));
+</script>
+</body>
+</html>
