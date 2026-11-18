@@ -374,6 +374,7 @@ function App() {
     brand: true
   });
   const [monthOpen, setMonthOpen] = useState(false);
+  const [rhythmOpen, setRhythmOpen] = useState(false);
   const [editUid, setEditUid] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [drag, setDrag] = useState(null);
@@ -512,10 +513,10 @@ function App() {
       };
     });
   }, [loaded, key, tierActive]);
-  // Selecting a tier opens the monthly view so the plan is visible right away
+  // Selecting a tier opens the posting rhythm card so the plan is visible right away
   // (also fires on load when the month remembers an active tier).
   useEffect(() => {
-    if (loaded && tierActive !== "off") setMonthOpen(true);
+    if (loaded && tierActive !== "off") setRhythmOpen(true);
   }, [loaded, tierActive]);
   const todayIdx = (() => {
     const t = new Date();
@@ -1470,52 +1471,6 @@ function App() {
           }), /*#__PURE__*/_jsx("div", {
             className: "mt-1.5 text-[11px] " + T.sub,
             children: "Average of each logged week, same math as the weekly bar: checked-off hours plus sleep at your average."
-          }), /*#__PURE__*/_jsxs("div", {
-            className: "mt-4",
-            children: [/*#__PURE__*/_jsx("div", {
-              className: "text-sm font-semibold",
-              children: "Posting rhythm"
-            }), tierActive === "off" ? /*#__PURE__*/_jsx("div", {
-              className: "mt-1 text-[11px] " + T.sub,
-              children: "Pick a Posting Tier above and the month fills itself in."
-            }) : /*#__PURE__*/_jsx("div", {
-              className: "mt-1 text-[11px] " + T.sub,
-              children: "Posting days at a glance. A grey dot is a post to make that day; it turns brand green once checked off. Hover a dot to see the post."
-            }), tierActive !== "off" ? /*#__PURE__*/_jsxs("div", {
-              className: "mt-2 rounded-xl border p-3 " + T.card,
-              children: [/*#__PURE__*/_jsx("div", {
-                className: "grid grid-cols-7 gap-1 text-center text-[10px] font-medium " + T.sub,
-                children: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(d => /*#__PURE__*/_jsx("span", {
-                  children: d
-                }, d))
-              }), /*#__PURE__*/_jsxs("div", {
-                className: "mt-1 grid grid-cols-7 gap-1",
-                children: [Array.from({
-                  length: (new Date(anchor.getFullYear(), anchor.getMonth(), 1).getDay() + 6) % 7
-                }, (_, i) => /*#__PURE__*/_jsx("span", {}, "pad" + i)), Array.from({
-                  length: new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0).getDate()
-                }, (_, i) => {
-                  const dt = new Date(anchor.getFullYear(), anchor.getMonth(), i + 1);
-                  const dk = isoDate(dt);
-                  const monday = isoDate(mondayOf(dt));
-                  const dots = weekPlan(monday).filter(p => p.day === (dt.getDay() + 6) % 7);
-                  const today = dk === isoDate(new Date());
-                  return /*#__PURE__*/_jsxs("span", {
-                    className: "flex h-9 flex-col items-center justify-center rounded-lg " + (today ? theme === "light" ? "bg-[#7CA621]/15" : "bg-[#7CA621]/20" : ""),
-                    children: [/*#__PURE__*/_jsx("span", {
-                      className: "text-[10px] tabular-nums " + (dots.length > 0 ? "font-semibold " + (theme === "light" ? "text-[#1E1E1E]" : "text-[#F5F3EF]") : T.faint),
-                      children: i + 1
-                    }), /*#__PURE__*/_jsx("span", {
-                      className: "mt-0.5 flex h-1.5 items-center gap-0.5",
-                      children: dots.map((p, di) => /*#__PURE__*/_jsx("span", {
-                        title: p.label,
-                        className: "h-1.5 w-1.5 rounded-full " + (p.done ? theme === "light" ? "bg-[#7CA621]" : "bg-[#9CC45E]" : theme === "light" ? "bg-stone-400" : "bg-[#6E6862]")
-                      }, di))
-                    })]
-                  }, dk);
-                })]
-              })]
-            }) : null]
           }), /*#__PURE__*/_jsx("div", {
             className: "mt-3 space-y-1",
             children: monthRows.map(r => /*#__PURE__*/_jsxs("div", {
@@ -1928,7 +1883,60 @@ function App() {
             }, day);
           })
         })
-      }), /*#__PURE__*/_jsxs("div", {
+      }), tierActive !== "off" ? /*#__PURE__*/_jsxs("div", {
+        className: "rounded-2xl border p-5 shadow-sm " + T.card,
+        children: [/*#__PURE__*/_jsxs("button", {
+          onClick: () => setRhythmOpen(!rhythmOpen),
+          className: "flex w-full flex-wrap items-center justify-between gap-2",
+          children: [/*#__PURE__*/_jsxs("div", {
+            className: "text-left",
+            children: [/*#__PURE__*/_jsxs("div", {
+              className: "text-sm font-semibold",
+              children: [TIERS[tierActive].short, " Monthly Posting Rhythm"]
+            }), /*#__PURE__*/_jsx("div", {
+              className: "text-xs " + T.sub,
+              children: "Grey dot = a post to make that day · green = checked off."
+            })]
+          }), /*#__PURE__*/_jsx("span", {
+            className: "text-xs " + T.sub,
+            children: rhythmOpen ? "Hide ▲" : "Show ▼"
+          })]
+        }), rhythmOpen ? /*#__PURE__*/_jsxs("div", {
+          className: "mt-3 rounded-xl border p-3 " + T.card,
+          children: [/*#__PURE__*/_jsx("div", {
+            className: "grid grid-cols-7 gap-1 text-center text-[10px] font-medium " + T.sub,
+            children: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(d => /*#__PURE__*/_jsx("span", {
+              children: d
+            }, d))
+          }), /*#__PURE__*/_jsxs("div", {
+            className: "mt-1 grid grid-cols-7 gap-1",
+            children: [Array.from({
+              length: (new Date(anchor.getFullYear(), anchor.getMonth(), 1).getDay() + 6) % 7
+            }, (_, i) => /*#__PURE__*/_jsx("span", {}, "pad" + i)), Array.from({
+              length: new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0).getDate()
+            }, (_, i) => {
+              const dt = new Date(anchor.getFullYear(), anchor.getMonth(), i + 1);
+              const dk = isoDate(dt);
+              const monday = isoDate(mondayOf(dt));
+              const dots = weekPlan(monday).filter(p => p.day === (dt.getDay() + 6) % 7);
+              const today = dk === isoDate(new Date());
+              return /*#__PURE__*/_jsxs("span", {
+                className: "flex h-9 flex-col items-center justify-center rounded-lg " + (today ? theme === "light" ? "bg-[#7CA621]/15" : "bg-[#7CA621]/20" : ""),
+                children: [/*#__PURE__*/_jsx("span", {
+                  className: "text-[10px] tabular-nums " + (dots.length > 0 ? "font-semibold " + (theme === "light" ? "text-[#1E1E1E]" : "text-[#F5F3EF]") : T.faint),
+                  children: i + 1
+                }), /*#__PURE__*/_jsx("span", {
+                  className: "mt-0.5 flex h-1.5 items-center gap-0.5",
+                  children: dots.map((p, di) => /*#__PURE__*/_jsx("span", {
+                    title: p.label,
+                    className: "h-1.5 w-1.5 rounded-full " + (p.done ? theme === "light" ? "bg-[#7CA621]" : "bg-[#9CC45E]" : theme === "light" ? "bg-stone-400" : "bg-[#6E6862]")
+                  }, di))
+                })]
+              }, dk);
+            })]
+          })]
+        }) : null]
+      }) : null, /*#__PURE__*/_jsxs("div", {
         ref: trayRef,
         className: "rounded-2xl border p-4 shadow-sm transition-colors " + T.card + " " + (dragging && drag?.hover === "tray" ? "border-[#7CA621] bg-[#7CA621]/5" : ""),
         children: [/*#__PURE__*/_jsx("h2", {
