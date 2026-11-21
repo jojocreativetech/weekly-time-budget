@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Jojo's Weekly Time Budget · v1.6.1</title>
+<title>Jojo's Weekly Time Budget · v1.7</title>
 <meta name="description" content="Free weekly time budget: drag your week together block by block. Hour-based progress where sleep counts. From Jojo Creative Tech." />
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%237CA621'/%3E%3Ctext x='32' y='44' font-family='Georgia, serif' font-weight='700' font-size='34' text-anchor='middle' fill='%23FFFDF8'%3EJj%3C/text%3E%3C/svg%3E" />
 <link rel="stylesheet" href="vendor/styles.css" />
@@ -24,9 +24,6 @@ const {
   useRef
 } = React;
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-// Total hours in a week: the progress ceiling. Sleep is credited as points,
-// so 100% means every waking hour landed on a planned block.
-const WEEK_HOURS = 168;
 const ZONE_ORDER = ["am", "noon", "pm", "eve", "night", "open"];
 const ZONE_NAME = {
   am: "Morning",
@@ -278,6 +275,10 @@ const TIERS = {
   }
 };
 const TIER_KEYS = ["s8", "t12", "s16", "mm"];
+// v1.7 behavior switches: either side of the tier toggle can be pulled with
+// one word here if Jojo vetoes it after seeing it live.
+const TIER_CHIPS_TO_TOP = true; // tier chips slot at the TOP of their day
+const TIER_NOTE_ON_PICK = true; // dismissible note above the week grid on tier pick
 // Content rotation per week of the month (index 0 = first week; the short 5th week reuses week 4).
 const ROT = [{
   wed: "Anchor Post",
@@ -385,11 +386,11 @@ function App() {
   });
   const [monthOpen, setMonthOpen] = useState(false);
   const [rhythmOpen, setRhythmOpen] = useState(false);
+  const [tierNoteOpen, setTierNoteOpen] = useState(false);
   const [editUid, setEditUid] = useState(null);
   const [loaded, setLoaded] = useState(false);
   const [drag, setDrag] = useState(null);
   const dayRefs = useRef([]);
-  const trayRef = useRef(null);
   const paletteRef = useRef(null);
   const noteRefs = useRef([]);
   const blockRefs = useRef({});
@@ -416,7 +417,21 @@ function App() {
         const parsed = JSON.parse(w);
         if (parsed && typeof parsed === "object") {
           const out = {};
-          for (const k of Object.keys(parsed)) out[k] = normWeek(parsed[k]);
+          // v1.7: the side tray is gone. Anything parked there lifts into
+          // "today" (current week) or Monday of its own week. One-time,
+          // idempotent, names and check-offs kept.
+          const now = new Date();
+          const thisMon = isoDate(mondayOf(now));
+          const dow = (now.getDay() + 6) % 7;
+          for (const k of Object.keys(parsed)) {
+            const wk = normWeek(parsed[k]);
+            if (wk.placed.some(p => p.day === -1)) {
+              wk.placed = wk.placed.map(p => p.day === -1 ? _objectSpread(_objectSpread({}, p), {}, {
+                day: k === thisMon ? dow : 0
+              }) : p);
+            }
+            out[k] = wk;
+          }
           setWeeks(out);
         }
       }
@@ -473,6 +488,8 @@ function App() {
         tierMonth: v === "off" ? (_c$tierMonth = c.tierMonth) !== null && _c$tierMonth !== void 0 ? _c$tierMonth : "" : monthKey
       });
     });
+    // Turning a tier on pops the dismissible "posting days" note above the week grid.
+    if (v !== "off" && TIER_NOTE_ON_PICK) setTierNoteOpen(true);
     // Switching tiers or turning it off clears this month's posting-tier blocks so the new plan starts clean.
     setWeeks(s => {
       let changed = false;
@@ -504,17 +521,28 @@ function App() {
       const have = new Set(wk.placed.map(p => p.blockId));
       const add = wants.filter(x => !have.has(x.id) && !skip.includes(x.id));
       if (add.length === 0) return s;
-      const placed = [...wk.placed, ...add.map(x => ({
-        uid: genId("p"),
-        blockId: x.id,
-        day: x.day,
-        mins: x.mins,
-        done: false,
-        label: x.label
-      }))];
+      // Fresh tier chips slot in at the TOP of their day, above whatever was
+      // already planned there (flip TIER_CHIPS_TO_TOP above to undo).
+      const items = [...wk.placed];
+      for (const x of add) {
+        const it = {
+          uid: genId("p"),
+          blockId: x.id,
+          day: x.day,
+          mins: x.mins,
+          done: false,
+          label: x.label
+        };
+        if (!TIER_CHIPS_TO_TOP) {
+          items.push(it);
+          continue;
+        }
+        const at = items.findIndex(q => q.day === x.day);
+        if (at < 0) items.push(it);else items.splice(at, 0, it);
+      }
       return _objectSpread(_objectSpread({}, s), {}, {
         [key]: _objectSpread(_objectSpread({}, wk), {}, {
-          placed
+          placed: items
         })
       });
     });
@@ -529,6 +557,9 @@ function App() {
     if (isoDate(mondayOf(t)) !== key) return -1;
     return (t.getDay() + 6) % 7;
   })();
+
+  // Days the active tier lands posts on this week, for the pick-a-tier note.
+  const tierDays = tierActive !== "off" ? Array.from(new Set(tierWeekPosts(tierActive, anchor, dates).map(x => x.day))).sort((a, b) => a - b) : [];
   const placed = wd.placed;
   const tierPosts = placed.filter(p => p.blockId.startsWith("tp-"));
   const postsDone = tierPosts.filter(p => p.done).length;
@@ -536,13 +567,14 @@ function App() {
   const doneCount = placed.filter(p => p.done).length;
   const placedMins = placed.reduce((a, p) => a + p.mins, 0);
   const doneMins = placed.filter(p => p.done).reduce((a, p) => a + p.mins, 0);
-  // Progress is hour-based: 1 hour checked off = 1 point. Sleep is credited
-  // in the background at the person's average (sleep x 7 nights), so the
-  // sleep setting individualizes the math without any per-night logging.
+  // Progress = (sleep credit + checked-off hours) / (sleep credit + planned
+  // hours). 100% means you finished the week you planned. Sleep is credited
+  // at the person's average (sleep x 7 nights) on both sides of the fraction,
+  // so a half-done plan still reads as strong progress. An empty week is 0.
+  const plannedHours = placedMins / 60;
   const doneHours = doneMins / 60;
   const sleepCredit = cfg.sleep * 7;
-  const pts = Math.round((doneHours + sleepCredit) * 10) / 10;
-  const pct = Math.min(100, Math.round(pts / WEEK_HOURS * 100));
+  const pct = placedMins > 0 ? Math.min(100, Math.round((sleepCredit + doneHours) / (sleepCredit + plannedHours) * 100)) : 0;
   const frac = w => {
     if (!w || w.placed.length === 0) return 0;
     const t = w.placed.reduce((a, p) => a + p.mins, 0);
@@ -572,12 +604,13 @@ function App() {
     const stored = weeks[isoDate(m)];
     const wk = stored ? normWeek(stored) : null;
     const pl = wk ? wk.placed : [];
+    const pMins = pl.reduce((a, p) => a + p.mins, 0);
     const dMins = pl.filter(p => p.done).reduce((a, p) => a + p.mins, 0);
-    const wPts = dMins / 60 + cfg.sleep * 7;
+    // Same planned-relative math as the weekly bar (sleep on both sides).
     return {
       mkey: isoDate(m),
       logged: pl.length > 0,
-      pct: Math.min(100, Math.round(wPts / WEEK_HOURS * 100)),
+      pct: pMins > 0 ? Math.min(100, Math.round((cfg.sleep * 7 + dMins / 60) / (cfg.sleep * 7 + pMins / 60) * 100)) : 0,
       shipped: pl.filter(p => p.done).length,
       count: pl.length,
       posts: pl.filter(p => p.blockId.startsWith("tp-"))
@@ -640,20 +673,24 @@ function App() {
   // A placed block can carry its own name: tier posts and per-block edits use it.
   const placedLabel = p => p.label && p.label.trim() ? p.label : defOf(p.blockId).label;
   const suggestions = [...SUGGEST_WEEKLY, ...(videoWeek ? [EXTRA_BY.video] : []), ...(batchWeek ? [EXTRA_BY.batch] : []), ...(firstWeek ? [EXTRA_BY.accounting] : []), ...(firstWeek || !monthBlockIds.has(EXTRA_BY.newsletter.id) ? [EXTRA_BY.newsletter] : [])].filter(s => !placed.some(p => p.blockId === s.id));
-  const addPlaced = (blockId, day, mins) => upd(w => _objectSpread(_objectSpread({}, w), {}, {
-    placed: [...w.placed, {
+
+  // Add a block on a day. beforeUid slots it above the chip it was dropped on
+  // (when the drop landed on one); null appends to the end of that day's stack.
+  const addPlaced = (blockId, day, mins, beforeUid) => upd(w => {
+    const items = [...w.placed];
+    const it = {
       uid: genId("p"),
       blockId,
       day,
       mins,
       done: false
-    }]
-  }));
-  const movePlaced = (uid, day) => upd(w => _objectSpread(_objectSpread({}, w), {}, {
-    placed: w.placed.map(p => p.uid === uid ? _objectSpread(_objectSpread({}, p), {}, {
-      day
-    }) : p)
-  }));
+    };
+    const at = beforeUid ? items.findIndex(p => p.uid === beforeUid) : -1;
+    if (at >= 0) items.splice(at, 0, it);else items.push(it);
+    return _objectSpread(_objectSpread({}, w), {}, {
+      placed: items
+    });
+  });
   // Move a placed block to a day AND slot it before beforeUid (or at the end of that day's blocks).
   const reorderPlaced = (uid, day, beforeUid) => upd(w => {
     const items = [...w.placed];
@@ -779,11 +816,6 @@ function App() {
           if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return "day-" + i;
         }
       }
-      const tr = trayRef.current;
-      if (tr) {
-        const r = tr.getBoundingClientRect();
-        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return "tray";
-      }
       const pa = paletteRef.current;
       if (pa) {
         const r = pa.getBoundingClientRect();
@@ -793,7 +825,8 @@ function App() {
     return null;
   };
 
-  // Which placed block in dayIdx is the pointer over? Returns the uid to insert BEFORE, or null for append.
+  // Which placed block in dayIdx is the pointer over? "top" = upper half
+  // (insert above it), "bottom" = lower half (insert below it). Null = append.
   const hitBlock = (y, dayIdx, excludeUid) => {
     try {
       const blocks = placed.filter(p => p.day === dayIdx && p.uid !== excludeUid);
@@ -801,17 +834,33 @@ function App() {
         const el = blockRefs.current[b.uid];
         if (!el) continue;
         const r = el.getBoundingClientRect();
-        if (y >= r.top && y <= r.bottom) return b.uid;
+        if (y >= r.top && y <= r.bottom) return {
+          uid: b.uid,
+          half: y < (r.top + r.bottom) / 2 ? "top" : "bottom"
+        };
       }
       if (blocks.length > 0) {
         const el = blockRefs.current[blocks[0].uid];
         if (el) {
           const r = el.getBoundingClientRect();
-          if (y < r.top) return blocks[0].uid;
+          if (y < r.top) return {
+            uid: blocks[0].uid,
+            half: "top"
+          };
         }
       }
     } catch (e) {}
     return null;
+  };
+  // Translate a hit into "the uid to insert BEFORE": upper half = this chip,
+  // lower half = the chip after it (null = append to that day's end).
+  const hitBeforeUid = (y, dayIdx, excludeUid) => {
+    const hit = hitBlock(y, dayIdx, excludeUid);
+    if (!hit) return null;
+    if (hit.half === "top") return hit.uid;
+    const after = placed.filter(p => p.day === dayIdx && p.uid !== excludeUid);
+    const i = after.findIndex(b => b.uid === hit.uid);
+    return i >= 0 && i + 1 < after.length ? after[i + 1].uid : null;
   };
   const beginChipDrag = (e, source, blockId, label, zone, mins) => {
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -835,7 +884,7 @@ function App() {
     e.currentTarget.setPointerCapture(e.pointerId);
     setDrag({
       mode: "move",
-      source: p.day === -1 ? "tray" : "day",
+      source: "day",
       blockId: p.blockId,
       uid: p.uid,
       label: def.label,
@@ -883,13 +932,21 @@ function App() {
     const moved = drag.moved || Math.abs(e.clientX - drag.startX) > 6 || Math.abs(e.clientY - drag.startY) > 6;
     const hover = moved ? hitTarget(e.clientX, e.clientY) : null;
     let overUid = null;
-    if (moved && hover && hover.startsWith("day-")) overUid = hitBlock(e.clientY, parseInt(hover.slice(4), 10), drag.uid);
+    let overHalf = null;
+    if (moved && hover && hover.startsWith("day-")) {
+      const hit = hitBlock(e.clientY, parseInt(hover.slice(4), 10), drag.uid);
+      if (hit) {
+        overUid = hit.uid;
+        overHalf = hit.half;
+      }
+    }
     setDrag(_objectSpread(_objectSpread({}, drag), {}, {
       x: e.clientX,
       y: e.clientY,
       moved,
       hover,
-      overUid
+      overUid,
+      overHalf
     }));
   };
   const handleUp = e => {
@@ -903,19 +960,24 @@ function App() {
       return;
     }
     if (!d.moved) {
-      if ((d.source === "day" || d.source === "tray") && d.uid) togglePlaced(d.uid);else if (d.source === "sugg") addPlaced(d.blockId, -1, d.mins);else if (d.source === "palette") addPlaced(d.blockId, todayIdx >= 0 ? todayIdx : 0, d.mins);
+      // A plain click, no drag: check a block off, or drop the chip into today.
+      if (d.source === "day" && d.uid) togglePlaced(d.uid);else if (d.source === "sugg" || d.source === "palette") addPlaced(d.blockId, todayIdx >= 0 ? todayIdx : 0, d.mins);
       return;
     }
     const target = hitTarget(x, y);
     if (!target) return;
     if (target === "palette") {
-      if ((d.source === "day" || d.source === "tray") && d.uid) removePlaced(d.uid);
+      if (d.source === "day" && d.uid) removePlaced(d.uid);
       return;
     }
-    const day = target === "tray" ? -1 : parseInt(target.slice(4), 10);
-    if ((d.source === "day" || d.source === "tray") && d.uid) {
-      if (day >= 0) reorderPlaced(d.uid, day, hitBlock(y, day, d.uid));else movePlaced(d.uid, -1);
-    } else addPlaced(d.blockId, day, d.mins);
+    const day = parseInt(target.slice(4), 10);
+    if (d.source === "day" && d.uid) {
+      reorderPlaced(d.uid, day, hitBeforeUid(y, day, d.uid));
+    } else {
+      // A fresh chip dropped onto a day slots where you dropped it: above the
+      // chip under the pointer's upper half, below its lower half, else last.
+      addPlaced(d.blockId, day, d.mins, hitBeforeUid(y, day));
+    }
   };
   const T = {
     page: theme === "light" ? "bg-[#FFFDF8] text-[#1E1E1E]" : "bg-[#141312] text-[#F5F3EF]",
@@ -993,7 +1055,7 @@ function App() {
         mins
       }]
     }));
-    addPlaced(id, -1, mins);
+    addPlaced(id, todayIdx >= 0 ? todayIdx : 0, mins);
     setSuggNewLabel("");
     setSuggNewLen("");
     setSuggNewOpen(false);
@@ -1059,8 +1121,8 @@ function App() {
     }, "✕")) : null;
   };
   const shareText = () => {
-    const lines = ["My week: " + fmtPts(pts) + " of " + WEEK_HOURS + " h (" + pct + "%)"];
-    if (shareSel.stats) lines.push(doneCount + " of " + total + " blocks · " + fmtDur(doneMins) + " of " + fmtDur(placedMins) + " planned · " + fmtPts(doneHours) + " h checked off");
+    const lines = ["My week: " + pct + "% · " + fmtPts(doneHours) + " of " + fmtPts(plannedHours) + " planned h"];
+    if (shareSel.stats) lines.push(doneCount + " of " + total + " blocks · " + fmtDur(doneMins) + " of " + fmtDur(placedMins) + " planned");
     if (shareSel.streak && streak > 0) lines.push("🔥 " + streak + " week streak");
     if (shareSel.priorities) wd.items.slice(0, 3).forEach((n, i) => lines.push(String(i + 1) + ". " + n.text));
     if (shareSel.brand) lines.push("Made with Jojo Creative Tech · plan yours: jojocreativetech.github.io/weekly-time-budget");
@@ -1071,7 +1133,7 @@ function App() {
       const F = "'Montserrat', ui-sans-serif, system-ui, sans-serif";
       const body = [];
       if (shareSel.stats) body.push({
-        t: doneCount + " of " + total + " blocks shipped · " + fmtPts(doneHours) + " h checked off · " + fmtPts(pts) + " of " + WEEK_HOURS + " h",
+        t: doneCount + " of " + total + " blocks shipped · " + fmtPts(doneHours) + " h checked off",
         color: "#57534E",
         size: 13,
         weight: "500"
@@ -1336,7 +1398,7 @@ function App() {
     className: "mt-2 flex flex-wrap items-center justify-between gap-2"
   }, /*#__PURE__*/React.createElement("div", {
     className: "text-[11px] " + T.sub
-  }, fmtPts(pts), " of ", WEEK_HOURS, " h · 1 h checked off = 1 point · sleep counts at your average (+", fmtPts(sleepCredit), " h)"), /*#__PURE__*/React.createElement("div", {
+  }, "100% = the week you planned, done · ", fmtDur(doneMins), " of ", fmtDur(placedMins), " shipped · sleep counts (+", fmtPts(sleepCredit), " h)"), /*#__PURE__*/React.createElement("div", {
     className: "flex items-center gap-1.5"
   }, /*#__PURE__*/React.createElement("span", {
     className: "text-[11px] " + T.sub
@@ -1413,7 +1475,7 @@ function App() {
     }
   })), /*#__PURE__*/React.createElement("div", {
     className: "mt-1.5 text-[11px] " + T.sub
-  }, "Average of each logged week, same math as the weekly bar: checked-off hours plus sleep at your average."), /*#__PURE__*/React.createElement("div", {
+  }, "Average of each logged week, same math as the weekly bar: (sleep + checked-off) / (sleep + planned)."), /*#__PURE__*/React.createElement("div", {
     className: "mt-3 space-y-1"
   }, monthRows.map(r => /*#__PURE__*/React.createElement("div", {
     key: r.mkey,
@@ -1496,7 +1558,7 @@ function App() {
     onPointerMove: handleMove,
     onPointerUp: handleUp,
     onLostPointerCapture: handleUp,
-    title: "Drag into a day or the tray · click to drop it in the tray",
+    title: "Drag into a day · click to drop it into today",
     className: "flex cursor-grab touch-none items-center gap-1.5 rounded-full border border-dashed px-2.5 py-1 text-xs font-medium transition-colors",
     style: {
       borderColor: theme === "light" ? "#7CA621" : "#9CC45E",
@@ -1539,7 +1601,7 @@ function App() {
   }, "×")) : /*#__PURE__*/React.createElement("button", {
     onClick: () => setSuggNewOpen(true),
     className: "flex items-center gap-1.5 rounded-full border border-dashed px-2.5 py-1 text-xs font-medium transition-colors " + (theme === "light" ? "border-stone-300 text-stone-500 hover:border-[#7CA621] hover:text-[#5C7D18]" : "border-[#3A3733] text-[#A8A29A] hover:border-[#9CC45E] hover:text-[#9CC45E]"),
-    title: "Add your own: it joins the shelf and lands in this week's tray"
+    title: "Add your own: it joins the shelf and lands in today"
   }, /*#__PURE__*/React.createElement("span", {
     className: "text-[10px]"
   }, "+"), "New")), /*#__PURE__*/React.createElement("div", {
@@ -1675,7 +1737,15 @@ function App() {
     className: "rounded-full bg-[#7CA621] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#63851A]"
   }, "Add block"), /*#__PURE__*/React.createElement("span", {
     className: "text-[10px] " + T.faint
-  }, "Drag a placed block back into this shelf to remove it from the week.")))), /*#__PURE__*/React.createElement("div", {
+  }, "Drag a placed block back into this shelf to remove it from the week.")))), TIER_NOTE_ON_PICK && tierNoteOpen && tierActive !== "off" ? /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap items-center justify-between gap-2 rounded-2xl border p-3 " + T.card
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-xs font-semibold"
+  }, TIERS[tierActive].short, " on · ", tierDays.length === 7 ? "posting every day this month" : "posting days this week: " + tierDays.map(i => DAYS[i]).join(" + ")), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setTierNoteOpen(false),
+    className: "px-1 text-xs " + T.faint,
+    title: "Dismiss"
+  }, "✕")) : null, /*#__PURE__*/React.createElement("div", {
     className: "overflow-x-auto"
   }, /*#__PURE__*/React.createElement("div", {
     className: "grid min-w-[840px] gap-2",
@@ -1734,7 +1804,9 @@ function App() {
           height: h,
           borderColor: p.done ? theme === "light" ? "#7CA621" : "#9CC45E" : blockColor(def)
         }
-      }, (drag === null || drag === void 0 ? void 0 : drag.mode) === "move" && drag.moved && drag.overUid === p.uid && drag.uid !== p.uid ? /*#__PURE__*/React.createElement("div", {
+      }, (drag === null || drag === void 0 ? void 0 : drag.mode) === "move" && drag.moved && drag.overUid === p.uid && drag.uid !== p.uid ? drag.overHalf === "bottom" ? /*#__PURE__*/React.createElement("div", {
+        className: "absolute inset-x-0 bottom-0 z-20 h-[3px] rounded-full bg-[#7CA621]"
+      }) : /*#__PURE__*/React.createElement("div", {
         className: "absolute inset-x-0 top-0 z-20 h-[3px] rounded-full bg-[#7CA621]"
       }) : null, /*#__PURE__*/React.createElement("div", {
         className: "flex items-start gap-1 text-[10px] leading-tight " + (p.done ? "font-semibold " + (theme === "light" ? "text-[#5C7D18]" : "text-[#9CC45E]") : zoneText(def.zone))
@@ -1807,45 +1879,6 @@ function App() {
       className: "h-1.5 w-1.5 rounded-full " + (p.done ? theme === "light" ? "bg-[#7CA621]" : "bg-[#9CC45E]" : theme === "light" ? "bg-stone-400" : "bg-[#6E6862]")
     }))));
   }))) : null), /*#__PURE__*/React.createElement("div", {
-    ref: trayRef,
-    className: "rounded-2xl border p-4 shadow-sm transition-colors " + T.card + " " + (dragging && (drag === null || drag === void 0 ? void 0 : drag.hover) === "tray" ? "border-[#7CA621] bg-[#7CA621]/5" : "")
-  }, /*#__PURE__*/React.createElement("h2", {
-    className: "text-sm font-semibold tracking-wide uppercase"
-  }, "This week · not tied to a day"), /*#__PURE__*/React.createElement("p", {
-    className: "mt-1 text-xs " + T.sub
-  }, "Week-scope work lives here: drag suggestion chips in, click to check off, drag into a day when it finds a home. Hover a chip and hit × to send it back where it came from."), /*#__PURE__*/React.createElement("div", {
-    className: "mt-3 flex min-h-[52px] flex-wrap gap-2"
-  }, placed.filter(p => p.day === -1).length === 0 ? /*#__PURE__*/React.createElement("span", {
-    className: "m-auto text-[10px] " + T.faint
-  }, "drag a suggestion here") : null, placed.filter(p => p.day === -1).map(p => {
-    const def = defOf(p.blockId);
-    const isDrag = (drag === null || drag === void 0 ? void 0 : drag.mode) === "move" && drag.moved && drag.uid === p.uid;
-    return /*#__PURE__*/React.createElement("div", {
-      key: p.uid,
-      className: "group relative"
-    }, /*#__PURE__*/React.createElement("button", {
-      onPointerDown: e => beginBlockDrag(e, p),
-      onPointerMove: handleMove,
-      onPointerUp: handleUp,
-      onLostPointerCapture: handleUp,
-      className: "flex cursor-grab touch-none select-none items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs transition-colors " + (p.done ? "border-transparent " + (theme === "light" ? "bg-[#D85F4F] text-white" : "bg-[#E8837A] text-[#141312]") : T.card + (isDrag ? " opacity-30" : "")),
-      title: "Click to check off · drag into a day · × sends it back where it came from"
-    }, p.done ? /*#__PURE__*/React.createElement("span", null, "✓") : null, /*#__PURE__*/React.createElement("span", {
-      className: p.done ? "line-through opacity-80" : "font-medium"
-    }, placedLabel(p)), /*#__PURE__*/React.createElement("span", {
-      className: "text-[10px] tabular-nums " + (p.done ? "opacity-70" : T.faint)
-    }, fmtDur(p.mins))), /*#__PURE__*/React.createElement("button", {
-      onPointerDown: e => e.stopPropagation(),
-      onClick: () => removePlaced(p.uid),
-      className: "absolute -top-1.5 -right-1.5 hidden h-4 w-4 items-center justify-center rounded-full bg-stone-600 text-[9px] text-white group-hover:flex",
-      title: "Remove: it goes back to the shelf or the suggestion row"
-    }, "×"), /*#__PURE__*/React.createElement("button", {
-      onPointerDown: e => e.stopPropagation(),
-      onClick: () => setEditUid(editUid === p.uid ? null : p.uid),
-      className: "absolute -top-1.5 right-5 hidden h-4 w-4 items-center justify-center rounded-full bg-stone-600 text-[9px] text-white group-hover:flex",
-      title: "Edit name, length, or calendar time"
-    }, "✎"), blockPopover(p));
-  }))), /*#__PURE__*/React.createElement("div", {
     className: "rounded-2xl border p-5 shadow-sm " + T.card
   }, /*#__PURE__*/React.createElement("h2", {
     className: "text-sm font-semibold tracking-wide uppercase"
@@ -1957,8 +1990,7 @@ class TopBoundary extends React.Component {
     }
     return this.props.children;
   }
-}
-</script>
+}</script>
 <script>ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(TopBoundary, null, React.createElement(App)));</script>
 </body>
 </html>
