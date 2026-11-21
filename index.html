@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Jojo's Weekly Time Budget · v1.7</title>
+<title>Jojo's Weekly Time Budget · v1.7.1</title>
 <meta name="description" content="Free weekly time budget: drag your week together block by block. Hour-based progress where sleep counts. From Jojo Creative Tech." />
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%237CA621'/%3E%3Ctext x='32' y='44' font-family='Georgia, serif' font-weight='700' font-size='34' text-anchor='middle' fill='%23FFFDF8'%3EJj%3C/text%3E%3C/svg%3E" />
 <link rel="stylesheet" href="vendor/styles.css" />
@@ -1491,6 +1491,51 @@ function App() {
     className: "mt-3 text-xs " + T.sub
   }, "Posts this month: ", monthPostsDone, " of ", monthPosts.length, " checked off", tierActive !== "off" ? " · plan: " + TIERS[tierActive].name : "") : null) : null), /*#__PURE__*/React.createElement("div", {
     className: "rounded-2xl border p-5 shadow-sm " + T.card
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setRhythmOpen(!rhythmOpen),
+    className: "flex w-full flex-wrap items-center justify-between gap-2"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-left"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "text-sm font-semibold"
+  }, tierActive !== "off" ? TIERS[tierActive].short + " Monthly Posting Rhythm" : "Monthly Posting Rhythm"), /*#__PURE__*/React.createElement("div", {
+    className: "text-xs " + T.sub
+  }, tierActive !== "off" ? "Grey dot = a post to make that day · green = checked off." : "Pick a Posting Tier below and the month fills itself in.")), /*#__PURE__*/React.createElement("span", {
+    className: "text-xs " + T.sub
+  }, rhythmOpen ? "Hide ▲" : "Show ▼")), rhythmOpen && tierActive !== "off" ? /*#__PURE__*/React.createElement("div", {
+    className: "mt-3 rounded-xl border p-3 " + T.card
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "grid grid-cols-7 gap-1 text-center text-[10px] font-medium " + T.sub
+  }, ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(d => /*#__PURE__*/React.createElement("span", {
+    key: d
+  }, d))), /*#__PURE__*/React.createElement("div", {
+    className: "mt-1 grid grid-cols-7 gap-1"
+  }, Array.from({
+    length: (new Date(anchor.getFullYear(), anchor.getMonth(), 1).getDay() + 6) % 7
+  }, (_, i) => /*#__PURE__*/React.createElement("span", {
+    key: "pad" + i
+  })), Array.from({
+    length: new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0).getDate()
+  }, (_, i) => {
+    const dt = new Date(anchor.getFullYear(), anchor.getMonth(), i + 1);
+    const dk = isoDate(dt);
+    const monday = isoDate(mondayOf(dt));
+    const dots = weekPlan(monday).filter(p => p.day === (dt.getDay() + 6) % 7);
+    const today = dk === isoDate(new Date());
+    return /*#__PURE__*/React.createElement("span", {
+      key: dk,
+      className: "flex h-9 flex-col items-center justify-center rounded-lg " + (today ? theme === "light" ? "bg-[#7CA621]/15" : "bg-[#7CA621]/20" : "")
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "text-[10px] tabular-nums " + (dots.length > 0 ? "font-semibold " + (theme === "light" ? "text-[#1E1E1E]" : "text-[#F5F3EF]") : T.faint)
+    }, i + 1), /*#__PURE__*/React.createElement("span", {
+      className: "mt-0.5 flex h-1.5 items-center gap-0.5"
+    }, dots.map((p, di) => /*#__PURE__*/React.createElement("span", {
+      key: di,
+      title: p.label,
+      className: "h-1.5 w-1.5 rounded-full " + (p.done ? theme === "light" ? "bg-[#7CA621]" : "bg-[#9CC45E]" : theme === "light" ? "bg-stone-400" : "bg-[#6E6862]")
+    }))));
+  }))) : null), /*#__PURE__*/React.createElement("div", {
+    className: "rounded-2xl border p-5 shadow-sm " + T.card
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex flex-wrap items-center justify-between gap-2"
   }, /*#__PURE__*/React.createElement("h2", {
@@ -1835,51 +1880,6 @@ function App() {
     })));
   }))), /*#__PURE__*/React.createElement("div", {
     className: "rounded-2xl border p-5 shadow-sm " + T.card
-  }, /*#__PURE__*/React.createElement("button", {
-    onClick: () => setRhythmOpen(!rhythmOpen),
-    className: "flex w-full flex-wrap items-center justify-between gap-2"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "text-left"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "text-sm font-semibold"
-  }, tierActive !== "off" ? TIERS[tierActive].short + " Monthly Posting Rhythm" : "Monthly Posting Rhythm"), /*#__PURE__*/React.createElement("div", {
-    className: "text-xs " + T.sub
-  }, tierActive !== "off" ? "Grey dot = a post to make that day · green = checked off." : "Pick a Posting Tier above and the month fills itself in.")), /*#__PURE__*/React.createElement("span", {
-    className: "text-xs " + T.sub
-  }, rhythmOpen ? "Hide ▲" : "Show ▼")), rhythmOpen && tierActive !== "off" ? /*#__PURE__*/React.createElement("div", {
-    className: "mt-3 rounded-xl border p-3 " + T.card
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "grid grid-cols-7 gap-1 text-center text-[10px] font-medium " + T.sub
-  }, ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(d => /*#__PURE__*/React.createElement("span", {
-    key: d
-  }, d))), /*#__PURE__*/React.createElement("div", {
-    className: "mt-1 grid grid-cols-7 gap-1"
-  }, Array.from({
-    length: (new Date(anchor.getFullYear(), anchor.getMonth(), 1).getDay() + 6) % 7
-  }, (_, i) => /*#__PURE__*/React.createElement("span", {
-    key: "pad" + i
-  })), Array.from({
-    length: new Date(anchor.getFullYear(), anchor.getMonth() + 1, 0).getDate()
-  }, (_, i) => {
-    const dt = new Date(anchor.getFullYear(), anchor.getMonth(), i + 1);
-    const dk = isoDate(dt);
-    const monday = isoDate(mondayOf(dt));
-    const dots = weekPlan(monday).filter(p => p.day === (dt.getDay() + 6) % 7);
-    const today = dk === isoDate(new Date());
-    return /*#__PURE__*/React.createElement("span", {
-      key: dk,
-      className: "flex h-9 flex-col items-center justify-center rounded-lg " + (today ? theme === "light" ? "bg-[#7CA621]/15" : "bg-[#7CA621]/20" : "")
-    }, /*#__PURE__*/React.createElement("span", {
-      className: "text-[10px] tabular-nums " + (dots.length > 0 ? "font-semibold " + (theme === "light" ? "text-[#1E1E1E]" : "text-[#F5F3EF]") : T.faint)
-    }, i + 1), /*#__PURE__*/React.createElement("span", {
-      className: "mt-0.5 flex h-1.5 items-center gap-0.5"
-    }, dots.map((p, di) => /*#__PURE__*/React.createElement("span", {
-      key: di,
-      title: p.label,
-      className: "h-1.5 w-1.5 rounded-full " + (p.done ? theme === "light" ? "bg-[#7CA621]" : "bg-[#9CC45E]" : theme === "light" ? "bg-stone-400" : "bg-[#6E6862]")
-    }))));
-  }))) : null), /*#__PURE__*/React.createElement("div", {
-    className: "rounded-2xl border p-5 shadow-sm " + T.card
   }, /*#__PURE__*/React.createElement("h2", {
     className: "text-sm font-semibold tracking-wide uppercase"
   }, "Priority notes"), /*#__PURE__*/React.createElement("p", {
@@ -1990,7 +1990,8 @@ class TopBoundary extends React.Component {
     }
     return this.props.children;
   }
-}</script>
+}
+</script>
 <script>ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(TopBoundary, null, React.createElement(App)));</script>
 </body>
 </html>
