@@ -55,7 +55,6 @@ img,video{height:auto;max-width:100%}
 .right-0\.5{right:.125rem}
 .right-1\.5{right:.375rem}
 .right-4{right:1rem}
-.right-5{right:1.25rem}
 .right-6{right:1.5rem}
 .top-0{top:0}
 .top-0\.5{top:.125rem}
@@ -89,7 +88,6 @@ img,video{height:auto;max-width:100%}
 .h-9{height:2.25rem}
 .h-\[3px\]{height:3px}
 .min-h-\[300px\]{min-height:300px}
-.min-h-\[52px\]{min-height:52px}
 .min-h-screen{min-height:100vh}
 .w-1\.5{width:.375rem}
 .w-16{width:4rem}
@@ -167,7 +165,6 @@ img,video{height:auto;max-width:100%}
 .bg-\[\#9CC45E\]{--tw-bg-opacity:1;background-color:rgb(156 196 94/var(--tw-bg-opacity,1))}
 .bg-\[\#9CC45E\]\/15{background-color:rgba(156,196,94,.15)}
 .bg-\[\#D85F4F\]{--tw-bg-opacity:1;background-color:rgb(216 95 79/var(--tw-bg-opacity,1))}
-.bg-\[\#E8837A\]{--tw-bg-opacity:1;background-color:rgb(232 131 122/var(--tw-bg-opacity,1))}
 .bg-\[\#EFE9DD\]{--tw-bg-opacity:1;background-color:rgb(239 233 221/var(--tw-bg-opacity,1))}
 .bg-\[\#FFFDF8\]{--tw-bg-opacity:1;background-color:rgb(255 253 248/var(--tw-bg-opacity,1))}
 .bg-red-400\/5{background-color:hsla(0,91%,71%,.05)}
@@ -247,6 +244,7 @@ img,video{height:auto;max-width:100%}
 .underline-offset-4{text-underline-offset:4px}
 .opacity-30{opacity:.3}
 .opacity-40{opacity:.4}
+.opacity-50{opacity:.5}
 .opacity-60{opacity:.6}
 .opacity-70{opacity:.7}
 .opacity-80{opacity:.8}
@@ -267,8 +265,10 @@ img,video{height:auto;max-width:100%}
 .placeholder\:text-stone-400::placeholder{--tw-text-opacity:1;color:rgb(168 162 158/var(--tw-text-opacity,1))}
 .hover\:border-\[\#7CA621\]:hover{--tw-border-opacity:1;border-color:rgb(124 166 33/var(--tw-border-opacity,1))}
 .hover\:border-\[\#9CC45E\]:hover{--tw-border-opacity:1;border-color:rgb(156 196 94/var(--tw-border-opacity,1))}
+.hover\:bg-\[\#2A2825\]:hover{--tw-bg-opacity:1;background-color:rgb(42 40 37/var(--tw-bg-opacity,1))}
 .hover\:bg-\[\#63851A\]:hover{--tw-bg-opacity:1;background-color:rgb(99 133 26/var(--tw-bg-opacity,1))}
 .hover\:bg-\[\#7CA621\]:hover{--tw-bg-opacity:1;background-color:rgb(124 166 33/var(--tw-bg-opacity,1))}
+.hover\:bg-\[\#EFE9DD\]:hover{--tw-bg-opacity:1;background-color:rgb(239 233 221/var(--tw-bg-opacity,1))}
 .hover\:text-\[\#5C7D18\]:hover{--tw-text-opacity:1;color:rgb(92 125 24/var(--tw-text-opacity,1))}
 .hover\:text-\[\#7CA621\]:hover{--tw-text-opacity:1;color:rgb(124 166 33/var(--tw-text-opacity,1))}
 .hover\:text-\[\#9CC45E\]:hover{--tw-text-opacity:1;color:rgb(156 196 94/var(--tw-text-opacity,1))}

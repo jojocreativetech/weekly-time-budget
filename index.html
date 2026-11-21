@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Jojo's Weekly Time Budget · v1.7.1</title>
+<title>Jojo's Weekly Time Budget · v1.8</title>
 <meta name="description" content="Free weekly time budget: drag your week together block by block. Hour-based progress where sleep counts. From Jojo Creative Tech." />
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%237CA621'/%3E%3Ctext x='32' y='44' font-family='Georgia, serif' font-weight='700' font-size='34' text-anchor='middle' fill='%23FFFDF8'%3EJj%3C/text%3E%3C/svg%3E" />
 <link rel="stylesheet" href="vendor/styles.css" />
@@ -100,7 +100,8 @@ function normItems(raw) {
       var _t$id;
       return {
         id: String((_t$id = t.id) !== null && _t$id !== void 0 ? _t$id : genId("n")),
-        text: t.text.trim()
+        text: t.text.trim(),
+        done: t.done === true
       };
     });
   }
@@ -111,6 +112,10 @@ function normItems(raw) {
     }));
   }
   return [];
+}
+// v1.8: active notes stay on top, struck notes sink to the bottom (order kept).
+function stableNotes(ns) {
+  return [...ns.filter(n => !n.done), ...ns.filter(n => n.done)];
 }
 function normWeek(raw) {
   const placed = Array.isArray(raw && raw.placed) ? raw.placed.map(normPlaced) : [];
@@ -370,6 +375,7 @@ function App() {
   const [newLen, setNewLen] = useState("");
   const [newLabel, setNewLabel] = useState("");
   const [noteText, setNoteText] = useState("");
+  const [notes, setNotes] = useState([]);
   const [noteDrag, setNoteDrag] = useState(null);
   const [suggNewOpen, setSuggNewOpen] = useState(false);
   const [suggNewLabel, setSuggNewLabel] = useState("");
@@ -413,6 +419,7 @@ function App() {
         }
       }
       const w = localStorage.getItem("jojo-routine-v2-weeks");
+      let parsedWeeks = null;
       if (w) {
         const parsed = JSON.parse(w);
         if (parsed && typeof parsed === "object") {
@@ -432,9 +439,27 @@ function App() {
             }
             out[k] = wk;
           }
+          parsedWeeks = out;
           setWeeks(out);
         }
       }
+      // v1.8: priority notes are a permanent carry-over list, not per-week.
+      // One-time migration: if the notes key does not exist yet, lift THIS
+      // week's notes into the global store (Jojo's call). Other weeks' notes
+      // stay in the old per-week blob, unused. Idempotent: the save effect
+      // writes the key right after load, so this never runs twice.
+      const nk = localStorage.getItem("jojo-routine-v2-notes");
+      let startNotes = [];
+      if (nk) {
+        const np = JSON.parse(nk);
+        if (Array.isArray(np)) startNotes = normItems(np);
+      } else if (parsedWeeks) {
+        const thisWk = parsedWeeks[isoDate(mondayOf(new Date()))];
+        if (thisWk) startNotes = thisWk.items.map(n => _objectSpread(_objectSpread({}, n), {}, {
+          done: false
+        }));
+      }
+      setNotes(stableNotes(startNotes));
     } catch (e) {}
     setLoaded(true);
   }, []);
@@ -452,8 +477,9 @@ function App() {
       localStorage.setItem("jojo-routine-theme", theme);
       localStorage.setItem("jojo-routine-v2-cfg", JSON.stringify(cfg));
       localStorage.setItem("jojo-routine-v2-weeks", JSON.stringify(weeks));
+      localStorage.setItem("jojo-routine-v2-notes", JSON.stringify(notes));
     } catch (e) {}
-  }, [theme, cfg, weeks, loaded]);
+  }, [theme, cfg, weeks, notes, loaded]);
   const key = isoDate(anchor);
   const wd = weeks[key] ? normWeek(weeks[key]) : normWeek(undefined);
   const upd = fn => setWeeks(s => _objectSpread(_objectSpread({}, s), {}, {
@@ -740,24 +766,19 @@ function App() {
   const addNote = () => {
     const t = noteText.trim();
     if (!t) return;
-    upd(w => _objectSpread(_objectSpread({}, w), {}, {
-      items: [...w.items, {
-        id: genId("n"),
-        text: t
-      }]
-    }));
+    setNotes(ns => [...ns.filter(n => !n.done), {
+      id: genId("n"),
+      text: t
+    }, ...ns.filter(n => n.done)]);
     setNoteText("");
   };
-  const setNote = (id, text) => text.trim() ? upd(w => _objectSpread(_objectSpread({}, w), {}, {
-    items: w.items.map(n => n.id === id ? _objectSpread(_objectSpread({}, n), {}, {
-      text: text.trim()
-    }) : n)
-  })) : upd(w => _objectSpread(_objectSpread({}, w), {}, {
-    items: w.items.filter(n => n.id !== id)
-  }));
-  const removeNote = id => upd(w => _objectSpread(_objectSpread({}, w), {}, {
-    items: w.items.filter(n => n.id !== id)
-  }));
+  const setNote = (id, text) => text.trim() ? setNotes(ns => ns.map(n => n.id === id ? _objectSpread(_objectSpread({}, n), {}, {
+    text: text.trim()
+  }) : n)) : setNotes(ns => ns.filter(n => n.id !== id));
+  const removeNote = id => setNotes(ns => ns.filter(n => n.id !== id));
+  const toggleNoteDone = id => setNotes(ns => stableNotes(ns.map(n => n.id === id ? _objectSpread(_objectSpread({}, n), {}, {
+    done: !n.done
+  }) : n)));
   const beginNoteDrag = (e, id) => {
     e.currentTarget.setPointerCapture(e.pointerId);
     setNoteDrag({
@@ -769,7 +790,7 @@ function App() {
   const noteMove = e => {
     if (!noteDrag) return;
     let over = -1;
-    for (let i = 0; i < wd.items.length; i++) {
+    for (let i = 0; i < notes.length; i++) {
       const el = noteRefs.current[i];
       if (!el) continue;
       const r = el.getBoundingClientRect();
@@ -782,9 +803,9 @@ function App() {
       const r = noteRefs.current[0].getBoundingClientRect();
       if (e.clientY < r.top) over = 0;
     }
-    if (over === -1 && noteRefs.current[wd.items.length - 1]) {
-      const r = noteRefs.current[wd.items.length - 1].getBoundingClientRect();
-      if (e.clientY > r.bottom) over = wd.items.length - 1;
+    if (over === -1 && noteRefs.current[notes.length - 1]) {
+      const r = noteRefs.current[notes.length - 1].getBoundingClientRect();
+      if (e.clientY > r.bottom) over = notes.length - 1;
     }
     setNoteDrag(_objectSpread(_objectSpread({}, noteDrag), {}, {
       y: e.clientY,
@@ -793,17 +814,13 @@ function App() {
   };
   const noteUp = () => {
     if (!noteDrag) return;
-    const from = wd.items.findIndex(n => n.id === noteDrag.id);
+    const from = notes.findIndex(n => n.id === noteDrag.id);
     const to = noteDrag.over;
     if (from >= 0 && to >= 0 && to !== from) {
-      upd(w => {
-        const items = [...w.items];
-        const sp = items.splice(from, 1);
-        if (sp.length > 0) items.splice(to, 0, sp[0]);
-        return _objectSpread(_objectSpread({}, w), {}, {
-          items
-        });
-      });
+      const items = [...notes];
+      const sp = items.splice(from, 1);
+      if (sp.length > 0) items.splice(to, 0, sp[0]);
+      setNotes(stableNotes(items));
     }
     setNoteDrag(null);
   };
@@ -1124,7 +1141,7 @@ function App() {
     const lines = ["My week: " + pct + "% · " + fmtPts(doneHours) + " of " + fmtPts(plannedHours) + " planned h"];
     if (shareSel.stats) lines.push(doneCount + " of " + total + " blocks · " + fmtDur(doneMins) + " of " + fmtDur(placedMins) + " planned");
     if (shareSel.streak && streak > 0) lines.push("🔥 " + streak + " week streak");
-    if (shareSel.priorities) wd.items.slice(0, 3).forEach((n, i) => lines.push(String(i + 1) + ". " + n.text));
+    if (shareSel.priorities) notes.filter(n => !n.done).slice(0, 3).forEach((n, i) => lines.push(String(i + 1) + ". " + n.text));
     if (shareSel.brand) lines.push("Made with Jojo Creative Tech · plan yours: jojocreativetech.github.io/weekly-time-budget");
     return lines.join("\n");
   };
@@ -1144,7 +1161,7 @@ function App() {
         size: 14,
         weight: "600"
       });
-      if (shareSel.priorities) wd.items.slice(0, 3).forEach((n, i) => body.push({
+      if (shareSel.priorities) notes.filter(n => !n.done).slice(0, 3).forEach((n, i) => body.push({
         t: String(i + 1) + ". " + n.text,
         color: "#1E1E1E",
         size: 14,
@@ -1884,11 +1901,11 @@ function App() {
     className: "text-sm font-semibold tracking-wide uppercase"
   }, "Priority notes"), /*#__PURE__*/React.createElement("p", {
     className: "mt-1 text-xs " + T.sub
-  }, "Notes to yourself, ranked. Drag the ⇕ to reorder: top of the list is top of mind. Clear the text and click away to delete."), /*#__PURE__*/React.createElement("div", {
+  }, "Notes to yourself, ranked. They carry over from week to week. Drag the ⇕ to reorder: top of the list is top of mind. Hit ✓ to strike a note done; struck notes sink to the bottom. Clear the text and click away to delete."), /*#__PURE__*/React.createElement("div", {
     className: "mt-3 space-y-1.5"
-  }, wd.items.length === 0 ? /*#__PURE__*/React.createElement("p", {
+  }, notes.length === 0 ? /*#__PURE__*/React.createElement("p", {
     className: "text-[10px] " + T.faint
-  }, "Nothing yet. Add the first thing on your mind below.") : null, wd.items.map((n, i) => {
+  }, "Nothing yet. Add the first thing on your mind below.") : null, notes.map((n, i) => {
     const lifted = (noteDrag === null || noteDrag === void 0 ? void 0 : noteDrag.id) === n.id;
     const hovered = noteDrag && noteDrag.id !== n.id && noteDrag.over === i;
     return /*#__PURE__*/React.createElement("div", {
@@ -1913,8 +1930,12 @@ function App() {
       onKeyDown: e => {
         if (e.key === "Enter") e.target.blur();
       },
-      className: "min-w-0 flex-1 border-0 bg-transparent p-0 text-sm outline-none"
+      className: "min-w-0 flex-1 border-0 bg-transparent p-0 text-sm outline-none" + (n.done ? " line-through opacity-50" : "")
     }), /*#__PURE__*/React.createElement("button", {
+      onClick: () => toggleNoteDone(n.id),
+      className: "flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold " + (n.done ? theme === "light" ? "bg-[#7CA621] text-white" : "bg-[#9CC45E] text-[#141312]" : T.faint + (theme === "light" ? " hover:bg-[#EFE9DD] hover:text-[#5C7D18]" : " hover:bg-[#2A2825] hover:text-[#9CC45E]")),
+      title: n.done ? "Un-strike (back to active)" : "Strike through (done)"
+    }, n.done ? "↺" : "✓"), /*#__PURE__*/React.createElement("button", {
       onClick: () => removeNote(n.id),
       className: "hidden h-5 w-5 items-center justify-center rounded-full text-xs group-hover:flex " + T.faint + " hover:text-[#D85F4F]",
       title: "Remove"
