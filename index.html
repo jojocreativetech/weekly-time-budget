@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Jojo's Weekly Time Budget · v1.8.1</title>
+<title>Jojo's Weekly Time Budget · v1.9</title>
 <meta name="description" content="Free weekly time budget: drag your week together block by block. Hour-based progress where sleep counts. From Jojo Creative Tech." />
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%237CA621'/%3E%3Ctext x='32' y='44' font-family='Georgia, serif' font-weight='700' font-size='34' text-anchor='middle' fill='%23FFFDF8'%3EJj%3C/text%3E%3C/svg%3E" />
 <link rel="stylesheet" href="vendor/styles.css" />
@@ -343,8 +343,8 @@ const SHARE_TOGGLES = [{
   k: "streak",
   label: "Streak"
 }, {
-  k: "priorities",
-  label: "Top 3 priorities"
+  k: "tier",
+  label: "Posting tier"
 }, {
   k: "brand",
   label: "JjCT credit"
@@ -387,7 +387,7 @@ function App() {
   const [shareSel, setShareSel] = useState({
     stats: true,
     streak: true,
-    priorities: true,
+    tier: true,
     brand: true
   });
   const [monthOpen, setMonthOpen] = useState(false);
@@ -1141,39 +1141,22 @@ function App() {
     const lines = ["My week: " + pct + "% · " + fmtPts(doneHours) + " of " + fmtPts(plannedHours) + " planned h"];
     if (shareSel.stats) lines.push(doneCount + " of " + total + " blocks · " + fmtDur(doneMins) + " of " + fmtDur(placedMins) + " planned");
     if (shareSel.streak && streak > 0) lines.push("🔥 " + streak + " week streak");
-    if (shareSel.priorities) notes.filter(n => !n.done).slice(0, 3).forEach((n, i) => lines.push(String(i + 1) + ". " + n.text));
+    if (shareSel.tier && tierActive !== "off") lines.push(TIERS[tierActive].short + " posting plan on");
     if (shareSel.brand) lines.push("Made with Jojo Creative Tech · plan yours: jojocreativetech.github.io/weekly-time-budget");
     return lines.join("\n");
   };
   const downloadShare = () => {
     try {
       const F = "'Montserrat', ui-sans-serif, system-ui, sans-serif";
-      const body = [];
-      if (shareSel.stats) body.push({
-        t: doneCount + " of " + total + " blocks shipped · " + fmtPts(doneHours) + " h checked off",
-        color: "#57534E",
-        size: 13,
-        weight: "500"
-      });
-      if (shareSel.streak && streak > 0) body.push({
-        t: streak + " week streak",
-        color: "#1E1E1E",
-        size: 14,
-        weight: "600"
-      });
-      if (shareSel.priorities) notes.filter(n => !n.done).slice(0, 3).forEach((n, i) => body.push({
-        t: String(i + 1) + ". " + n.text,
-        color: "#1E1E1E",
-        size: 14,
-        weight: "500"
-      }));
       const W = 600;
-      const STRIP_TOP = 208;
-      const STRIP_H = 84;
+      // The strip is the hero: pure time blocks. No block names, no notes,
+      // nothing personal except the optional tier chip.
+      const STRIP_TOP = 224;
+      const STRIP_H = 152;
+      const colW = 72;
+      const colGap = (W - 64 - colW * 7) / 6;
       const LABEL_Y = STRIP_TOP + STRIP_H + 18;
-      const TOP = LABEL_Y + 14;
-      const LINE = 28;
-      const H = TOP + body.length * LINE + (shareSel.brand ? 62 : 34);
+      const H = LABEL_Y + (shareSel.brand ? 34 : 14);
       const c = document.createElement("canvas");
       c.width = W * 2;
       c.height = H * 2;
@@ -1182,6 +1165,7 @@ function App() {
       g.scale(2, 2);
       g.fillStyle = "#FFFDF8";
       g.fillRect(0, 0, W, H);
+      // Header.
       g.fillStyle = "#5C7D18";
       g.font = "600 11px " + F;
       g.fillText("JOJO CREATIVE TECH", 32, 42);
@@ -1193,18 +1177,56 @@ function App() {
       g.textAlign = "right";
       g.fillText(weekLabel, W - 32, 74);
       g.textAlign = "left";
-      g.font = "700 64px " + F;
+      // Big % + bar (bar kept left so the right column has clean space).
+      g.font = "700 52px " + F;
       g.fillStyle = "#5C7D18";
-      g.fillText(String(pct) + "%", 32, 140);
+      g.fillText(String(pct) + "%", 32, 138);
       g.fillStyle = "#EFE9DD";
-      g.fillRect(32, 158, W - 64, 14);
+      g.fillRect(32, 156, 268, 12);
       if (pct > 0) {
         g.fillStyle = "#7CA621";
-        g.fillRect(32, 158, Math.max(14, (W - 64) * pct / 100), 14);
+        g.fillRect(32, 156, Math.max(12, 268 * pct / 100), 12);
       }
-      // Mini week strip: one column per day, stacked colored segments for that day's blocks.
-      const colW = 66;
-      const colGap = 10;
+      // Right column: stats, streak, tier chip.
+      let ry = 112;
+      if (shareSel.stats) {
+        g.textAlign = "right";
+        g.fillStyle = "#1E1E1E";
+        g.font = "600 15px " + F;
+        g.fillText(doneCount + " of " + total + " blocks shipped", W - 32, ry);
+        g.fillStyle = "#57534E";
+        g.font = "500 12px " + F;
+        g.fillText(fmtPts(doneHours) + " of " + fmtPts(plannedHours) + " planned hours done", W - 32, ry + 20);
+        g.textAlign = "left";
+        ry += 42;
+      }
+      if (shareSel.streak && streak > 0) {
+        g.textAlign = "right";
+        g.fillStyle = "#1E1E1E";
+        g.font = "600 15px " + F;
+        g.fillText("🔥 " + streak + " week streak", W - 32, ry);
+        g.textAlign = "left";
+        ry += 26;
+      }
+      if (shareSel.tier && tierActive !== "off") {
+        const t = TIERS[tierActive].short + " POSTING PLAN";
+        g.font = "600 11px " + F;
+        const tw = g.measureText(t).width;
+        g.fillStyle = "#7CA621";
+        if (typeof g.roundRect === "function") {
+          g.beginPath();
+          g.roundRect(W - 32 - tw - 22, ry - 12, tw + 22, 22, 11);
+          g.fill();
+        } else {
+          g.fillRect(W - 32 - tw - 22, ry - 12, tw + 22, 22);
+        }
+        g.fillStyle = "#FFFFFF";
+        g.textAlign = "center";
+        g.fillText(t, W - 32 - tw / 2 - 11, ry + 3);
+        g.textAlign = "left";
+        ry += 26;
+      }
+      // Week strip: one column per day, stacked colored segments for that day's blocks.
       for (let i = 0; i < 7; i++) {
         const x = 32 + i * (colW + colGap);
         g.fillStyle = "#F5F1E8";
@@ -1231,21 +1253,119 @@ function App() {
         g.fillText(DAYS[i] + " " + dates[i].getDate(), x + colW / 2, LABEL_Y);
         g.textAlign = "left";
       }
-      let y = TOP;
-      for (const b of body) {
-        g.fillStyle = b.color;
-        g.font = b.weight + " " + b.size + "px " + F;
-        g.fillText(b.t, 32, y);
-        y += LINE;
-      }
       if (shareSel.brand) {
         g.fillStyle = "#A8A29A";
         g.font = "500 11px " + F;
-        g.fillText("Made with Jojo Creative Tech · plan yours: jojocreativetech.github.io/weekly-time-budget", 32, H - 24);
+        g.fillText("Made with Jojo Creative Tech · plan yours: jojocreativetech.github.io/weekly-time-budget", 32, H - 18);
       }
       const a = document.createElement("a");
       a.href = c.toDataURL("image/png");
       a.download = "weekly-progress-" + key + ".png";
+      a.click();
+    } catch (e) {}
+  };
+  const downloadMonthShare = () => {
+    try {
+      const F = "'Montserrat', ui-sans-serif, system-ui, sans-serif";
+      const W = 600;
+      const colW = 26;
+      const colGap = 4;
+      const stripW = colW * 7 + colGap * 6;
+      const STRIP_H = 62;
+      const ROW_TOP = 208;
+      const ROW_GAP = 92;
+      const rowsBottom = monthRows.length > 0 ? ROW_TOP + (monthRows.length - 1) * ROW_GAP + STRIP_H : ROW_TOP;
+      const H = rowsBottom + 74;
+      const c = document.createElement("canvas");
+      c.width = W * 2;
+      c.height = H * 2;
+      const g = c.getContext("2d");
+      if (!g) return;
+      g.scale(2, 2);
+      g.fillStyle = "#FFFDF8";
+      g.fillRect(0, 0, W, H);
+      g.fillStyle = "#5C7D18";
+      g.font = "600 11px " + F;
+      g.fillText("JOJO CREATIVE TECH", 32, 42);
+      g.fillStyle = "#1E1E1E";
+      g.font = "700 22px " + F;
+      g.fillText("My month so far", 32, 74);
+      g.fillStyle = "#A8A29A";
+      g.font = "500 12px " + F;
+      g.textAlign = "right";
+      g.fillText(anchor.toLocaleDateString("en-US", {
+        month: "long",
+        year: "numeric"
+      }), W - 32, 74);
+      g.textAlign = "left";
+      g.font = "700 52px " + F;
+      g.fillStyle = "#5C7D18";
+      g.fillText(String(monthAvg) + "%", 32, 138);
+      g.fillStyle = "#EFE9DD";
+      g.fillRect(32, 156, 268, 12);
+      if (monthAvg > 0) {
+        g.fillStyle = "#7CA621";
+        g.fillRect(32, 156, Math.max(12, 268 * monthAvg / 100), 12);
+      }
+      g.textAlign = "right";
+      g.fillStyle = "#1E1E1E";
+      g.font = "600 15px " + F;
+      g.fillText(monthLogged.length + (monthLogged.length === 1 ? " week logged" : " weeks logged"), W - 32, 112);
+      if (monthPosts.length > 0) {
+        g.fillStyle = "#57534E";
+        g.font = "500 12px " + F;
+        g.fillText(monthPostsDone + " of " + monthPosts.length + " posts done", W - 32, 132);
+      }
+      g.textAlign = "left";
+      monthRows.forEach((r, i) => {
+        const top = ROW_TOP + i * ROW_GAP;
+        const wk = weeks[r.mkey] ? normWeek(weeks[r.mkey]) : null;
+        const pl = wk ? wk.placed : [];
+        for (let d = 0; d < 7; d++) {
+          const x = 32 + d * (colW + colGap);
+          g.fillStyle = "#F5F1E8";
+          if (typeof g.roundRect === "function") {
+            g.beginPath();
+            g.roundRect(x, top, colW, STRIP_H, 5);
+            g.fill();
+          } else {
+            g.fillRect(x, top, colW, STRIP_H);
+          }
+          let sy = top + 3;
+          for (const p of pl.filter(q => q.day === d)) {
+            const sh = Math.max(4, Math.round(p.mins * 0.12));
+            if (sy + sh > top + STRIP_H - 2) break;
+            g.globalAlpha = p.done ? 1 : 0.45;
+            g.fillStyle = blockColor(defOf(p.blockId));
+            g.fillRect(x + 2, sy, colW - 4, sh - 1);
+            g.globalAlpha = 1;
+            sy += sh;
+          }
+        }
+        const lx = 32 + stripW + 16;
+        g.fillStyle = "#1E1E1E";
+        g.font = "600 13px " + F;
+        g.fillText("Week of " + new Date(r.mkey + "T12:00:00").toLocaleDateString("en-US", {
+          month: "short",
+          day: "numeric"
+        }), lx, top + 16);
+        g.fillStyle = r.logged ? "#57534E" : "#A8A29A";
+        g.font = "500 11px " + F;
+        g.fillText(r.logged ? r.shipped + " of " + r.count + " blocks shipped" : "nothing planned yet", lx, top + 34);
+        if (r.logged) {
+          g.fillStyle = "#5C7D18";
+          g.font = "700 16px " + F;
+          g.textAlign = "right";
+          g.fillText(String(r.pct) + "%", W - 32, top + 22);
+          g.textAlign = "left";
+        }
+      });
+      g.fillStyle = "#A8A29A";
+      g.font = "500 11px " + F;
+      g.fillText("Made with Jojo Creative Tech · plan yours: jojocreativetech.github.io/weekly-time-budget", 32, H - 18);
+      const a = document.createElement("a");
+      a.href = c.toDataURL("image/png");
+      a.download = "monthly-progress-" + anchor.getFullYear() + "-" + String(anchor.getMonth() + 1).padStart(2, "0") + ".png";
       a.click();
     } catch (e) {}
   };
@@ -1424,7 +1544,11 @@ function App() {
       return n;
     }),
     className: "rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors " + (shareSel[tg.k] ? theme === "light" ? "bg-[#7CA621] border-transparent text-white" : "bg-[#9CC45E] border-transparent text-[#141312]" : T.card + " " + T.sub)
-  }, shareSel[tg.k] ? "✓ " : "", tg.label))), /*#__PURE__*/React.createElement("div", {
+  }, shareSel[tg.k] ? "✓ " : "", tg.label))), shareSel.tier && tierActive !== "off" ? /*#__PURE__*/React.createElement("p", {
+    className: "mt-2 text-[10px] " + T.faint
+  }, "⚠ The image and text will show your Posting Tier (", TIERS[tierActive].short, "). Turn it off above to share without it.") : null, /*#__PURE__*/React.createElement("p", {
+    className: "mt-1 text-[10px] " + T.faint
+  }, "Shares show time blocks only. Block names and priority notes are never included."), /*#__PURE__*/React.createElement("div", {
     className: "mt-3 flex flex-wrap items-center gap-2"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: downloadShare,
@@ -1487,7 +1611,14 @@ function App() {
     className: T.sub
   }, r.logged ? r.pct + "% · " + r.shipped + " of " + r.count + " blocks" : "not logged")))), monthPosts.length > 0 ? /*#__PURE__*/React.createElement("div", {
     className: "mt-3 text-xs " + T.sub
-  }, "Posts this month: ", monthPostsDone, " of ", monthPosts.length, " checked off", tierActive !== "off" ? " · plan: " + TIERS[tierActive].name : "") : null) : null), /*#__PURE__*/React.createElement("div", {
+  }, "Posts this month: ", monthPostsDone, " of ", monthPosts.length, " checked off", tierActive !== "off" ? " · plan: " + TIERS[tierActive].name : "") : null, /*#__PURE__*/React.createElement("div", {
+    className: "mt-3 flex flex-wrap items-center gap-2"
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: downloadMonthShare,
+    className: "rounded-full bg-[#7CA621] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#63851A]"
+  }, "Download month image"), /*#__PURE__*/React.createElement("span", {
+    className: "text-[10px] " + T.faint
+  }, "All this month's week strips in one image. Time blocks only, no names."))) : null), /*#__PURE__*/React.createElement("div", {
     className: "rounded-2xl border p-5 shadow-sm " + T.card
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setRhythmOpen(!rhythmOpen),
